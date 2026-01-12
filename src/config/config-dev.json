@@ -1,0 +1,21 @@
+{
+    "project_id": "search-ahmed",
+    "region": "us-central1",
+    "staging_bucket_uri": "gs://mlops_ref",
+    "service_account": "36231825761-compute@developer.gserviceaccount.com",
+    "pipeline_name": "mlops-ref-pipeline",
+    "pipeline_package_path": "src/pipelines/mlops-ref-pipeline.yaml",
+    "source_dataset_region": "US",
+    "source_table_id": "healthcare_raw_data",
+    "source_gcs_uri": "gs://mlops_ref/source_data/healthcare_dataset.csv",
+    "dataset_id": "mlops_ref",
+    "write_disposition_bq_load": "WRITE_TRUNCATE",
+    "validation_script_path": "gs://mlops_ref/queries/validation_sql.sql",
+    "required_columns": ["Age", "Blood Type", "Medical Condition", "Admission Type", "Hospital", "Date of Admission", "Discharge Date", "Test Results"],
+    "feature_table_id": "healthcare_features",
+    "top_k_feat_prep": 8,
+    "write_disposition_feature_load": "WRITE_TRUNCATE",
+    "max_blood_type": 0.3,
+    "max_null_admission": 0.2,
+    "max_null_medcond": 0.4
+}
