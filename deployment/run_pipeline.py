@@ -41,7 +41,16 @@ parameters = {
     "write_disposition_feature_load": config.get("write_disposition_feature_load"),
     "write_disposition_bq_load": config.get("write_disposition_bq_load"),
     "validation_script_path": config.get("validation_script_path"),
-    "validation_sql_params": sql_params
+    "validation_sql_params": sql_params,
+    "model_name": config.get("model_name"),
+    "model_type": config.get("model_type"),
+    "target_column": config.get("target_column"),
+    "data_split_method": config.get("data_split_method", "AUTO_SPLIT"),
+    "data_split_eval_fraction": config.get("data_split_eval_fraction", 0.2),
+    "auto_class_weights": config.get("auto_class_weights", True),
+    "max_iterations": config.get("max_iterations", 20),
+    "l1_reg": config.get("l1_reg", 0.0),
+    "l2_reg": config.get("l2_reg", 0.0)
 }
 
 if os.getenv('COMMIT_SHA'):
