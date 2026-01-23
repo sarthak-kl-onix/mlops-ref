@@ -1,1 +1,4 @@
 mlops-ref-pipeline.yaml
+__pycache__/
+*.py[cod]
+*$py.class
