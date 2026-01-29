@@ -1,0 +1,3 @@
+$env:ENV="dev"
+uv run -m src.pipelines.pipeline
+uv run -m deployment.run_pipeline

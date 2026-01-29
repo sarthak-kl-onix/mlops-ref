@@ -6,7 +6,11 @@ from google_cloud_pipeline_components.v1.custom_job.utils import (
 )
 from google_cloud_pipeline_components.v1.model import ModelUploadOp
 from google_cloud_pipeline_components.v1.model import ModelGetOp
-from google_cloud_pipeline_components.v1.bigquery import BigqueryQueryJobOp
+from google_cloud_pipeline_components.v1.bigquery import (
+    BigqueryQueryJobOp,
+    BigqueryCreateModelJobOp,
+    BigqueryEvaluateModelJobOp
+)
 from google_cloud_pipeline_components.v1.vertex_notification_email import VertexNotificationEmailOp
 from kfp import (compiler, dsl)
 from kfp.dsl import pipeline
@@ -14,6 +18,8 @@ from src.components.bq_load import bq_load
 from src.components.fetch_validation_script import fetch_validation_script
 from src.components.check_validation_result import check_validation_result
 from src.components.prepare_features import prepare_features
+from src.components.train_model import train_custom_model
+from src.components.evaluate_model import evaluate_model
 
 env = os.getenv("ENV")
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -41,9 +47,18 @@ def pipeline_func(
     top_k_feat_prep: int,
     write_disposition_feature_load: str,
     validation_script_path: str,
-    validation_sql_params: dict
+    validation_sql_params: dict,
+    model_name: str,
+    model_type: str,
+    target_column: str,
+    data_split_method: str = "AUTO_SPLIT",
+    data_split_eval_fraction: float = 0.2,
+    auto_class_weights: bool = True,
+    max_iterations: int = 20,
+    l1_reg: float = 0.0,
+    l2_reg: float = 0.0,
 ) -> None:
-    notify = VertexNotificationEmailOp(recipients=["sarthak.lohani@onixnet.com"])
+    notify = VertexNotificationEmailOp(recipients=["aditya.konde@onixnet.us"])
     with dsl.ExitHandler(notify):
         bq_load_op = bq_load(
             project = project,
@@ -89,4 +104,76 @@ def pipeline_func(
             )
             prepare_features_op.after(check_validation_result_op)
 
+
+
+        #     # Train BQML model
+
+        #changes in config  file for BQML model training
+            # // "model_name": "healthcare_test_results_classifier",
+            # // "model_type": "LOGISTIC_REG",
+            # // "target_column": "test_results",
+            # // "data_split_method": "AUTO_SPLIT",
+            # // "auto_class_weights": "TRUE",
+            # // "max_iterations": 20,
+            # // "l1_reg": 0.0,
+            # // "l2_reg": 0.0
+
+            train_model_op = BigqueryCreateModelJobOp(
+            project=project,
+            location=source_dataset_region,
+            query=f"""
+                CREATE OR REPLACE MODEL `{project}.{dataset_id}.{model_name}`
+                OPTIONS(
+                    model_type = '{model_type}',
+                    input_label_cols = ['{target_column}'],
+                    data_split_method = '{data_split_method}',
+                    auto_class_weights = {auto_class_weights},
+                    max_iterations = {max_iterations},
+                    l1_reg = {l1_reg},
+                    l2_reg = {l2_reg}
+                ) AS
+                SELECT *
+                FROM `{project}.{dataset_id}.{feature_table_id}`
+            """
+        )
+
+            train_model_op.after(prepare_features_op)
+
+            # Evaluate BQML model
+            evaluate_model_op = BigqueryEvaluateModelJobOp(
+                project=project,
+                location=source_dataset_region,
+                model=train_model_op.outputs["model"]
+            )
+            evaluate_model_op.after(train_model_op)
+
+
+            #changes in config file for custom model training
+            # "model_name": "healthcare_test_results_classifier2",
+            # "model_type": "SKLEARN_RANDOM_FOREST",
+            # "target_column": "test_results", 
+            # "data_split_method": "AUTO_SPLIT",
+            # "auto_class_weights": true,
+            # "max_iterations": 100,
+            # "l1_reg": 0.0,
+            # "l2_reg": 0.0
+
+#Train model using Custom Component
+            # train_op = train_custom_model(
+            #         project=project,
+            #         dataset_id=dataset_id,
+            #         feature_table_id=feature_table_id,
+            #         target_column=target_column
+            #     )
+            # train_op.after(prepare_features_op)
+
+            #     # Custom Evaluation
+            # evaluate_op = evaluate_model(
+            #         project=project,
+            #         dataset_id=dataset_id,
+            #         feature_table_id=feature_table_id,
+            #         target_column=target_column,
+            #         model_input=train_op.outputs['model_output']
+            #     )
+            # evaluate_op.after(train_op)
 compiler.Compiler().compile(pipeline_func=pipeline_func, package_path=PACKAGE_PATH)
