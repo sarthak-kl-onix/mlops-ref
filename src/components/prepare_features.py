@@ -147,7 +147,8 @@ def prepare_features(
 
     df["age"] = df["age"].mask((df["age"] < 0) | (df["age"] > 120))
     df["age_bucket"] = df["age"].apply(bucket_age)
-
+    df["age"] = (df["age"].astype(str).str.replace("–", "-", regex=False)  # EN DASH → ASCII
+)
     df["blood_type"] = df["blood_type"].apply(normalize_blood_type)
 
     df["medical_condition"] = (
@@ -187,6 +188,11 @@ def prepare_features(
         bins=[-1, 0, 2, 5, 10, 30, 365],
         labels=["0", "1–2", "3–5", "6–10", "11–30", "30+"],
     )
+    df["admit_time_bucket"] = (
+    df["admit_time_bucket"]
+    .astype(str)
+    .str.replace("–", "-", regex=False)  # EN DASH → ASCII
+)
 
     # ------------------------------------------------------------------
     # Test Results

@@ -1,15 +1,19 @@
 import json
 import os
+from kfp.dsl import importer
 
 from google_cloud_pipeline_components.v1.custom_job.utils import (
     create_custom_training_job_op_from_component
 )
+from google_cloud_pipeline_components.types import artifact_types
 from google_cloud_pipeline_components.v1.model import ModelUploadOp
+from google_cloud_pipeline_components.v1.endpoint import EndpointCreateOp, ModelDeployOp
 from google_cloud_pipeline_components.v1.model import ModelGetOp
 from google_cloud_pipeline_components.v1.bigquery import (
     BigqueryQueryJobOp,
     BigqueryCreateModelJobOp,
-    BigqueryEvaluateModelJobOp
+    BigqueryEvaluateModelJobOp,
+    BigqueryExportModelJobOp
 )
 from google_cloud_pipeline_components.v1.vertex_notification_email import VertexNotificationEmailOp
 from kfp import (compiler, dsl)
@@ -109,43 +113,75 @@ def pipeline_func(
         #     # Train BQML model
 
         #changes in config  file for BQML model training
-            # // "model_name": "healthcare_test_results_classifier",
-            # // "model_type": "LOGISTIC_REG",
-            # // "target_column": "test_results",
-            # // "data_split_method": "AUTO_SPLIT",
-            # // "auto_class_weights": "TRUE",
-            # // "max_iterations": 20,
-            # // "l1_reg": 0.0,
-            # // "l2_reg": 0.0
+            # "model_name": "healthcare_test_results_classifier",
+            # "model_type": "LOGISTIC_REG",
+            # "target_column": "test_results",
+            # "data_split_method": "AUTO_SPLIT",
+            # "auto_class_weights": "TRUE",
+            # "max_iterations": 20,
+            # "l1_reg": 0.0,
+            # "l2_reg": 0.0
 
-            train_model_op = BigqueryCreateModelJobOp(
-            project=project,
-            location=source_dataset_region,
-            query=f"""
-                CREATE OR REPLACE MODEL `{project}.{dataset_id}.{model_name}`
-                OPTIONS(
-                    model_type = '{model_type}',
-                    input_label_cols = ['{target_column}'],
-                    data_split_method = '{data_split_method}',
-                    auto_class_weights = {auto_class_weights},
-                    max_iterations = {max_iterations},
-                    l1_reg = {l1_reg},
-                    l2_reg = {l2_reg}
-                ) AS
-                SELECT *
-                FROM `{project}.{dataset_id}.{feature_table_id}`
-            """
-        )
+        #     train_model_op = BigqueryCreateModelJobOp(
+        #     project=project,
+        #     location=source_dataset_region,
+        #     query=f"""
+        #         CREATE OR REPLACE MODEL `{project}.{dataset_id}.{model_name}`
+        #         OPTIONS(
+        #             model_type = '{model_type}',
+        #             input_label_cols = ['{target_column}'],
+        #             data_split_method = '{data_split_method}',
+        #             auto_class_weights = {auto_class_weights},
+        #             max_iterations = {max_iterations},
+        #             l1_reg = {l1_reg},
+        #             l2_reg = {l2_reg}
+        #         ) AS
+        #         SELECT *
+        #         FROM `{project}.{dataset_id}.{feature_table_id}`
+        #     """
+        # )
 
-            train_model_op.after(prepare_features_op)
+        #     train_model_op.after(prepare_features_op)
+        #     print(BigqueryExportModelJobOp.component_spec.outputs)
 
-            # Evaluate BQML model
-            evaluate_model_op = BigqueryEvaluateModelJobOp(
-                project=project,
-                location=source_dataset_region,
-                model=train_model_op.outputs["model"]
-            )
-            evaluate_model_op.after(train_model_op)
+        # #     # Evaluate BQML model
+        #     evaluate_model_op = BigqueryEvaluateModelJobOp(
+        #         project=project,
+        #         location=source_dataset_region,
+        #         model=train_model_op.outputs["model"]
+        #     )
+        #     evaluate_model_op.after(train_model_op)
+
+        #     # Export and Upload BQML model to Vertex AI Model Registry
+
+        #     export_model_op = BigqueryExportModelJobOp(
+        #         project=project,
+        #         location=source_dataset_region,
+        #         model=train_model_op.outputs["model"],
+        #         model_destination_path=BUCKET_URI + "/models",
+        #     )
+        #     export_model_op.after(evaluate_model_op)
+
+        #     unmanaged_model = importer(
+        #         artifact_uri=export_model_op.outputs["exported_model_path"],
+        #         artifact_class=UnmanagedContainerModel,
+        #         metadata={
+        #             "containerSpec": {
+        #                 "imageUri": "us-docker.pkg.dev/vertex-ai/prediction/sklearn-cpu.1-3:latest"
+        #             }
+        #         }
+        #     )
+        # #     # Upload model to Vertex AI Model Registry
+        #     upload_model_op = ModelUploadOp(
+        #         project=project,
+        #         location=region,
+        #         display_name=f"{model_name}-uploaded",
+        #         unmanaged_container_model=unmanaged_model.output,
+        #     )
+        #     upload_model_op.after(export_model_op)#won't work  
+
+
+
 
 
             #changes in config file for custom model training
@@ -158,22 +194,66 @@ def pipeline_func(
             # "l1_reg": 0.0,
             # "l2_reg": 0.0
 
-#Train model using Custom Component
-            # train_op = train_custom_model(
-            #         project=project,
-            #         dataset_id=dataset_id,
-            #         feature_table_id=feature_table_id,
-            #         target_column=target_column
-            #     )
-            # train_op.after(prepare_features_op)
+            #Custom Training
+            train_op = train_custom_model(
+                    project=project,
+                    dataset_id=dataset_id,
+                    feature_table_id=feature_table_id,
+                    target_column=target_column
+                )
+            train_op.after(prepare_features_op)
 
-            #     # Custom Evaluation
-            # evaluate_op = evaluate_model(
-            #         project=project,
-            #         dataset_id=dataset_id,
-            #         feature_table_id=feature_table_id,
-            #         target_column=target_column,
-            #         model_input=train_op.outputs['model_output']
-            #     )
-            # evaluate_op.after(train_op)
+            # Custom Evaluation
+            evaluate_op = evaluate_model(
+                    project=project,
+                    dataset_id=dataset_id,
+                    feature_table_id=feature_table_id,
+                    target_column=target_column,
+                    model_input=train_op.outputs['model_output']
+                )
+            evaluate_op.after(train_op)
+
+
+
+            # Custom Upload 
+            # @dsl.component
+            # def get_uri(artifact: dsl.Input[dsl.Model]) -> str:
+            #     return artifact.uri
+            # uri_op = get_uri(artifact=train_op.outputs['model_output'])
+
+            # import_unmanaged_model_op = importer(
+            #     artifact_uri=uri_op.output, 
+            #     artifact_class=artifact_types.UnmanagedContainerModel,
+            #     metadata={
+            #         "containerSpec": {
+            #             "imageUri": "us-docker.pkg.dev/vertex-ai/prediction/sklearn-cpu.1-3:latest"
+            #         }
+            #     }
+            # )
+            upload_op = ModelUploadOp(
+                project=project,
+                location=region,
+                display_name=model_name,
+                unmanaged_container_model=train_op.outputs['model_output']
+            )
+            upload_op.after(evaluate_op)
+    
+            # Deploy the Model 
+            endpoint_create_op = EndpointCreateOp(
+            project=project,
+            location=region,
+            display_name=f"{model_name}-endpoint",
+            )
+            model_deploy_op = ModelDeployOp(
+            model=upload_op.outputs["model"],
+            endpoint=endpoint_create_op.outputs["endpoint"],
+            dedicated_resources_machine_type="n1-standard-8",
+            dedicated_resources_min_replica_count=1,
+            dedicated_resources_max_replica_count=1,
+            traffic_split={"0": 100}, # 100% traffic to this new model
+            )
+        model_deploy_op.after(upload_op)
+
+            
+
 compiler.Compiler().compile(pipeline_func=pipeline_func, package_path=PACKAGE_PATH)
