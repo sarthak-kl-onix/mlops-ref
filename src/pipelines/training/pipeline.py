@@ -24,6 +24,9 @@ from src.components.check_validation_result import check_validation_result
 from src.components.prepare_features import prepare_features
 from src.components.train_model import train_custom_model
 from src.components.evaluate_model import evaluate_model
+from vertexai.resources.preview import ml_monitoring
+from google.cloud.aiplatform_v1beta1.types import ExplanationSpec, ExplanationParameters, ExplanationMetadata
+
 
 env = os.getenv("ENV")
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -240,20 +243,20 @@ def pipeline_func(
     
             # Deploy the Model 
             endpoint_create_op = EndpointCreateOp(
-            project=project,
-            location=region,
-            display_name=f"{model_name}-endpoint",
+                project=project,
+                location=region,
+                display_name=f"{model_name}-endpoint",
             )
             model_deploy_op = ModelDeployOp(
-            model=upload_op.outputs["model"],
-            endpoint=endpoint_create_op.outputs["endpoint"],
-            dedicated_resources_machine_type="n1-standard-8",
-            dedicated_resources_min_replica_count=1,
-            dedicated_resources_max_replica_count=1,
-            traffic_split={"0": 100}, # 100% traffic to this new model
+                model=upload_op.outputs["model"],
+                endpoint=endpoint_create_op.outputs["endpoint"],
+                dedicated_resources_machine_type="n1-standard-8",
+                dedicated_resources_min_replica_count=1,
+                dedicated_resources_max_replica_count=1,
+                traffic_split={"0": 100}, # 100% traffic to this new model
             )
-        model_deploy_op.after(upload_op)
+            model_deploy_op.after(upload_op)
 
-            
+            # Define Monitoring Schema. For AutoML models, this is optional if the schema information is available.
 
 compiler.Compiler().compile(pipeline_func=pipeline_func, package_path=PACKAGE_PATH)

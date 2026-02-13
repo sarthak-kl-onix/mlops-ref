@@ -5,7 +5,7 @@
     "staging_bucket_uri": "gs://mlops_ref",
     "service_account": "36231825761-compute@developer.gserviceaccount.com",
     "pipeline_name": "mlops-ref-pipeline",
-    "pipeline_package_path": "src/pipelines/mlops-ref-pipeline.yaml",
+    "pipeline_package_path": "src/pipelines/training/mlops-ref-pipeline.yaml",
     "source_dataset_region": "us-central1",
     "source_table_id": "healthcare_raw_data",
     "source_gcs_uri": "gs://mlops_ref/source_data/healthcare_dataset.csv",
