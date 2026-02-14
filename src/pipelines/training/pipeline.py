@@ -30,7 +30,7 @@ from google.cloud.aiplatform_v1beta1.types import ExplanationSpec, ExplanationPa
 
 env = os.getenv("ENV")
 script_dir = os.path.dirname(os.path.abspath(__file__))
-config_path = os.path.join(script_dir, f"../config/config-{env}.json")
+config_path = os.path.join(script_dir, f"../../config/config-{env}.json")
 with open(config_path) as json_file:
     config = json.load(json_file)
 
