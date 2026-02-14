@@ -113,7 +113,7 @@ def pipeline_func(
 
 
 
-        #     # Train BQML model
+        # Train BQML model
 
         #changes in config  file for BQML model training
             # "model_name": "healthcare_test_results_classifier",

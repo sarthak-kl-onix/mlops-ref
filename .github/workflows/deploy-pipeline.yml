@@ -19,7 +19,7 @@ jobs:
       PIPELINE_GCS_BUCKET: ${{ vars.PIPELINE_GCS_BUCKET }}
       VERTEX_SA_EMAIL: ${{ secrets.VERTEX_SA_EMAIL }}
       ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || github.ref == 'refs/heads/develop' && 'dev' }}
-      PIPELINE_REPO: mlops-ref
+      PIPELINE_REPO: ml-pipelines
     runs-on: ubuntu-latest
     
     steps:
