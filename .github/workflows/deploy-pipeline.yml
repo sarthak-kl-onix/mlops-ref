@@ -18,7 +18,7 @@ jobs:
       REGION: ${{ vars.GCP_REGION }}
       PIPELINE_GCS_BUCKET: ${{ vars.PIPELINE_GCS_BUCKET }}
       VERTEX_SA_EMAIL: ${{ secrets.VERTEX_SA_EMAIL }}
-      ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || github.ref == 'refs/heads/develop' && 'dev' }}
+      ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || github.ref == 'refs/heads/feature/Aditya' && 'dev' }}
       PIPELINE_REPO: ml-pipelines
     runs-on: ubuntu-latest
     
@@ -76,7 +76,7 @@ jobs:
 
       - name: Run Vertex AI PipelineJob
         id: run_pipeline
-        if: github.ref == 'refs/heads/develop'
+        if: github.ref == 'refs/heads/feature/Aditya'
         run: |
           uv run deployment/run_pipeline.py
         env:
