@@ -17,14 +17,19 @@ def evaluate_model(
     import os
     from google.cloud import bigquery
     from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+    from sklearn.model_selection import train_test_split
 
     # 1. Load Data in batches - only sample 10000 rows to avoid memory issues
     client = bigquery.Client(project=project)
-    query = f"SELECT * FROM `{project}.{dataset_id}.{feature_table_id}` LIMIT 10000"
+    query = f"SELECT * FROM `{project}.{dataset_id}.{feature_table_id}`"
     df = client.query(query).to_dataframe()
     
-    X_test = df.drop(columns=[target_column])
-    y_test = df[target_column]
+    _, test_df = train_test_split(df, test_size=0.2, random_state=42)
+    
+    # 3. Prepare Test Features
+    drop_cols = [target_column, "record_id", "feature_timestamp"] 
+    X_test = test_df.drop(columns=[c for c in drop_cols if c in test_df.columns])
+    y_test = test_df[target_column]
 
     # 2. Load Model
     model_path = os.path.join(model_input.path, "model.joblib")

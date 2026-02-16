@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime, timezone
 import json
 import os
 
@@ -24,7 +24,7 @@ sql_params = {
     "REQUIRED_COLUMNS": ", ".join(
         f"'{c}'" for c in config.get("required_columns")
     ),
-    "TARGET_DATE": config.get("validation_target_date"),
+    "TARGET_DATE": datetime.now(timezone.utc).strftime('%Y-%m-%d'),
     "MAX_BLOOD_TYPE": config.get("max_blood_type"),
     "MAX_NULL_ADMISSION": config.get("max_null_admission"),
     "MAX_NULL_MEDCOND": config.get("max_null_medcond")
@@ -44,23 +44,16 @@ parameters = {
     "validation_script_path": config.get("validation_script_path"),
     "validation_sql_params": sql_params,
     "model_name": config.get("model_name"),
-    "version_aliases": config.get("version_aliases"),
-    "model_labels": dict(config.get("model_labels")),
-    "model_type": config.get("model_type"),
     "target_column": config.get("target_column"),
-    "data_split_method": config.get("data_split_method", "AUTO_SPLIT"),
-    "data_split_eval_fraction": config.get("data_split_eval_fraction", 0.2),
-    "auto_class_weights": config.get("auto_class_weights", True),
-    "max_iterations": config.get("max_iterations", 20),
-    "l1_reg": config.get("l1_reg", 0.0),
-    "l2_reg": config.get("l2_reg", 0.0)
+    "alias": config.get("version_alias"),
+    "monitoring_metrics_history_table": config.get("monitoring_metrics_history_table")
 }
 
 if os.getenv('COMMIT_SHA'):
     job_id = DISPLAY_NAME + "-" + os.getenv('COMMIT_SHA')
     PACKAGE_PATH = os.getenv('PACKAGE_PATH')
 else:
-    job_id = DISPLAY_NAME + "-" + datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    job_id = DISPLAY_NAME + "-" + datetime.now().strftime("%Y%m%d%H%M%S")
 
 job = aiplatform.PipelineJob(
     display_name=DISPLAY_NAME,
@@ -68,7 +61,7 @@ job = aiplatform.PipelineJob(
     pipeline_root=PIPELINE_ROOT,
     parameter_values=parameters,
     job_id=job_id,
-    # enable_caching=False,
+    enable_caching=False,
     project=config.get("project_id"),
     location=config.get("region")
 )

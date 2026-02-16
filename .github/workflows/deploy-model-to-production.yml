@@ -8,10 +8,10 @@ on:
         required: true
         default: 'dev'
 
-# Required for Workload Identity Federation (WIF)
-permissions:
-  contents: 'read'
-  id-token: 'write'
+# # Required for Workload Identity Federation (WIF)
+# permissions:
+#   contents: 'read'
+#   id-token: 'write'
 
 jobs:
   deploy:
@@ -26,13 +26,12 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Authenticate to Google Cloud
+      - id: 'auth'
+        name: Authenticate to Google Cloud
         uses: 'google-github-actions/auth@v3'
         with:
-          # This secret must store the WIF provider name (Pre-requisite)
-          project_id: ${{ env.GCP_PROJECT }}
-          workload_identity_provider: ${{ secrets.WIF_PROVIDER_ID }}
-          # service_account: ${{ env.SERVICE_ACCOUNT_EMAIL }}
+          project_id: ${{ vars.GCP_PROJECT }}
+          credentials_json: ${{ secrets.SA_CREDS }}
 
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v1
@@ -49,7 +48,7 @@ jobs:
         run: |
           MODEL_VERSION=$(gcloud ai models list \
             --format="value(name)" \
-            --filter="labels.state=approved displayName=category-filter-preference-model" \
+            --filter="labels.state=approved displayName=healthcare-test-results-classifier" \
             --sort-by=~createTime \
             --limit=1 \
             --region=${{ env.GCP_REGION }})
@@ -67,14 +66,14 @@ jobs:
         id: endpoint
         run: |
           ENDPOINT_ID=$(gcloud ai endpoints list \
-            --filter="displayName=category-filter-preference-endpoint" \
+            --filter="displayName=healthcare-test-results-classifier-endpoint" \
             --format="value(name)" \
             --limit=1)
 
           if [[ -z "$ENDPOINT_ID" ]]; then
-            echo "🛠 Creating endpoint: category-filter-preference-endpoint"
+            echo "🛠 Creating endpoint: healthcare-test-results-classifier-endpoint"
             ENDPOINT_ID=$(gcloud ai endpoints create \
-              --display-name=category-filter-preference-endpoint \
+              --display-name=healthcare-test-results-classifier-endpoint \
               --format="value(name)")
           fi
 
@@ -87,7 +86,7 @@ jobs:
           gcloud ai endpoints deploy-model \
             ${{ steps.endpoint.outputs.endpoint_id }} \
             --model=${{ steps.get_model.outputs.model_version }} \
-            --display-name="category-filter-preference-model-online" \
+            --display-name="healthcare-test-results-classifier-model-online" \
             --machine-type=$ONLINE_MACHINE_TYPE \
             --traffic-split=0=100 \
             --quiet

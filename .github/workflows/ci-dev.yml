@@ -5,13 +5,13 @@ name: CI - Run Lint & Tests
 on:
   pull_request:
     branches:
-      - develop
+      - feature/Aditya
 
 jobs:
   test-and-lint:
     environment: dev
     env:
-      PIPELINE_NAME: category-filter-preference-pipeline
+      PIPELINE_NAME: healthcare-test-results-classifier-pipeline
       ENV: dev
     runs-on: ubuntu-latest
     steps:

@@ -1,7 +1,7 @@
 [project]
-name = "staples-mlops"
+name = "mlops-ref"
 version = "0.1.0"
-description = "Staples MLOps project"
+description = "Reference mlops pipeline"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
