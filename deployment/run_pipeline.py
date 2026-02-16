@@ -49,7 +49,6 @@ parameters = {
     "model_type": config.get("model_type"),
     "target_column": config.get("target_column"),
     "data_split_method": config.get("data_split_method", "AUTO_SPLIT"),
-    "data_split_eval_fraction": config.get("data_split_eval_fraction", 0.2),
     "auto_class_weights": config.get("auto_class_weights", True),
     "max_iterations": config.get("max_iterations", 20),
     "l1_reg": config.get("l1_reg", 0.0),

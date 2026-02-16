@@ -58,7 +58,6 @@ def pipeline_func(
     model_type: str,
     target_column: str,
     data_split_method: str = "AUTO_SPLIT",
-    data_split_eval_fraction: float = 0.2,
     auto_class_weights: bool = True,
     max_iterations: int = 20,
     l1_reg: float = 0.0,
@@ -111,6 +110,38 @@ def pipeline_func(
                 write_disposition=write_disposition_feature_load,
             )
             prepare_features_op.after(check_validation_result_op)
+
+            # train_model_op = BigqueryCreateModelJobOp(
+            #     project=project,
+            #     location=dataset_region,
+            #     query=f"""
+            #         CREATE OR REPLACE MODEL {project}.{dataset_id}.{model_name}
+            #         OPTIONS(
+            #             MODEL_REGISTRY = 'vertex_ai',
+            #             VERTEX_AI_MODEL_ID = '{model_name}',
+            #             model_type = '{model_type}',
+            #             input_label_cols = ['{target_column}'],
+            #             data_split_method = '{data_split_method}',
+            #             auto_class_weights = {auto_class_weights},
+            #             max_iterations = {max_iterations},
+            #             l1_reg = {l1_reg},
+            #             l2_reg = {l2_reg}
+            #         ) AS
+            #         SELECT *
+            #         FROM {project}.{dataset_id}.{feature_table_id}
+            #     """
+            # )
+
+            # train_model_op.after(prepare_features_op) #returns model type as BQML model 
+
+            # # #  Evaluate BQML model
+            # evaluate_model_op = BigqueryEvaluateModelJobOp(
+            #     project=project,
+            #     location=dataset_region,
+            #     model=train_model_op.outputs["model"]
+            # )
+            # evaluate_model_op.after(train_model_op)
+
 
             #changes in config file for custom model training
             # "model_name": "healthcare_test_results_classifier2",
