@@ -4,8 +4,8 @@
     "region": "us-central1",
     "staging_bucket_uri": "gs://mlops_ref",
     "service_account": "36231825761-compute@developer.gserviceaccount.com",
-    "pipeline_name": "mlops-ref-pipeline",
-    "pipeline_package_path": "src/pipelines/training/mlops-ref-pipeline.yaml",
+    "pipeline_name": "mlops-ref-monitoring-pipeline",
+    "pipeline_package_path": "src/pipelines/monitoring/mlops-ref-monitoring-pipeline.yaml",
     "dataset_region": "US",
     "source_table_id": "healthcare_raw_data",
     "source_gcs_dir": "gs://mlops_ref/source_data/",
@@ -27,23 +27,12 @@
     ],
     "feature_table_id": "healthcare_features",
     "top_k_feat_prep": 8,
-    "write_disposition_feature_load": "WRITE_TRUNCATE",
+    "write_disposition_feature_load": "WRITE_APPEND",
     "max_blood_type": 0.3,
     "max_null_admission": 0.2,
     "max_null_medcond": 0.4,
-
     "model_name": "healthcare-test-results-classifier",
-    "model_type": "SKLEARN_RANDOM_FOREST",
-    "target_column": "test_results", 
-    "data_split_method": "AUTO_SPLIT",
-    "auto_class_weights": true,
-    "max_iterations": 100,
-    "l1_reg": 0.0,
-    "l2_reg": 0.0,
-    "model_labels": {
-        "model_status": "approved"
-    },
-    "version_aliases": [
-        "latest"
-    ]
+    "target_column": "test_results",
+    "version_alias": "latest",
+    "monitoring_metrics_history_table": "monitoring_metrics"
 }

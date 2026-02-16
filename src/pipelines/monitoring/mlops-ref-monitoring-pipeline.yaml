@@ -1,0 +1,1688 @@
+# PIPELINE DEFINITION
+# Name: mlops-ref-monitoring-pipeline
+# Inputs:
+#    auto_class_weights: bool [Default: True]
+#    data_split_method: str [Default: 'AUTO_SPLIT']
+#    dataset_id: str
+#    dataset_region: str
+#    feature_table_id: str
+#    l1_reg: float [Default: 0.0]
+#    l2_reg: float [Default: 0.0]
+#    max_iterations: int [Default: 20.0]
+#    model_labels: dict
+#    model_name: str
+#    model_type: str
+#    project: str
+#    region: str
+#    required_columns: list
+#    source_gcs_dir: str
+#    source_table_id: str
+#    target_column: str
+#    top_k_feat_prep: int
+#    validation_script_path: str
+#    validation_sql_params: dict
+#    version_aliases: list
+#    write_disposition_bq_load: str
+#    write_disposition_feature_load: str
+components:
+  comp-bigquery-query-job:
+    executorLabel: exec-bigquery-query-job
+    inputDefinitions:
+      parameters:
+        encryption_spec_key_name:
+          defaultValue: ''
+          description: Describes the Cloud KMS encryption key that will be used to
+            protect destination BigQuery table. The BigQuery Service Account associated
+            with your project requires access to this encryption key. If encryption_spec_key_name
+            are both specified in here and in job_configuration_query, the value in
+            here will override the other one.
+          isOptional: true
+          parameterType: STRING
+        job_configuration_query:
+          defaultValue: {}
+          description: A json formatted string describing the rest of the job configuration.  For
+            more details, see https://cloud.google.com/bigquery/docs/reference/rest/v2/Job#JobConfigurationQuery
+          isOptional: true
+          parameterType: STRUCT
+        labels:
+          defaultValue: {}
+          description: 'The labels associated with this job. You can use these to
+            organize and group your jobs. Label keys and values can be no longer than
+            63 characters, can only containlowercase letters, numeric characters,
+            underscores and dashes. International characters are allowed. Label values
+            are optional. Label keys must start with a letter and each label in the
+            list must have a different key.
+
+            Example: { "name": "wrench", "mass": "1.3kg", "count": "3" }.'
+          isOptional: true
+          parameterType: STRUCT
+        location:
+          defaultValue: us-central1
+          description: Location for creating the BigQuery job. If not set, default
+            to `US` multi-region.  For more details, see https://cloud.google.com/bigquery/docs/locations#specifying_your_location
+          isOptional: true
+          parameterType: STRING
+        project:
+          defaultValue: '{{$.pipeline_google_cloud_project_id}}'
+          description: Project to run the BigQuery query job. Defaults to the project
+            in which the PipelineJob is run.
+          isOptional: true
+          parameterType: STRING
+        query:
+          defaultValue: ''
+          description: SQL query text to execute. Only standard SQL is supported.  If
+            query are both specified in here and in job_configuration_query, the value
+            in here will override the other one.
+          isOptional: true
+          parameterType: STRING
+        query_parameters:
+          defaultValue: []
+          description: jobs.query parameters for standard SQL queries.  If query_parameters
+            are both specified in here and in job_configuration_query, the value in
+            here will override the other one.
+          isOptional: true
+          parameterType: LIST
+    outputDefinitions:
+      artifacts:
+        destination_table:
+          artifactType:
+            schemaTitle: google.BQTable
+            schemaVersion: 0.0.1
+          description: Describes the table where the query results should be stored.
+            This property must be set for large results that exceed the maximum response
+            size. For queries that produce anonymous (cached) results, this field
+            will be populated by BigQuery.
+      parameters:
+        gcp_resources:
+          description: Serialized gcp_resources proto tracking the BigQuery job. For
+            more details, see https://github.com/kubeflow/pipelines/blob/master/components/google-cloud/google_cloud_pipeline_components/proto/README.md.
+          parameterType: STRING
+  comp-bq-load:
+    executorLabel: exec-bq-load
+    inputDefinitions:
+      parameters:
+        dataset_id:
+          parameterType: STRING
+        gcs_source_dir:
+          parameterType: STRING
+        is_monitoring:
+          parameterType: BOOLEAN
+        project:
+          parameterType: STRING
+        region:
+          defaultValue: US
+          isOptional: true
+          parameterType: STRING
+        table_id:
+          parameterType: STRING
+        write_disposition:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        raw_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        load_result:
+          parameterType: BOOLEAN
+  comp-check-model-exists:
+    executorLabel: exec-check-model-exists
+    inputDefinitions:
+      parameters:
+        location:
+          parameterType: STRING
+        model_name:
+          parameterType: STRING
+        project:
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        model_id:
+          parameterType: STRING
+  comp-check-validation-result:
+    executorLabel: exec-check-validation-result
+    inputDefinitions:
+      parameters:
+        dataset_id:
+          parameterType: STRING
+        project_id:
+          parameterType: STRING
+        region:
+          defaultValue: US
+          isOptional: true
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        result_output:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        validation_result:
+          parameterType: BOOLEAN
+  comp-condition-2:
+    dag:
+      tasks:
+        check-model-exists:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-check-model-exists
+          dependentTasks:
+          - train-custom-model
+          inputs:
+            parameters:
+              location:
+                componentInputParameter: pipelinechannel--region
+              model_name:
+                componentInputParameter: pipelinechannel--model_name
+              project:
+                componentInputParameter: pipelinechannel--project
+          taskInfo:
+            name: check-model-exists
+        condition-branches-3:
+          componentRef:
+            name: comp-condition-branches-3
+          dependentTasks:
+          - check-model-exists
+          - train-custom-model
+          inputs:
+            artifacts:
+              pipelinechannel--train-custom-model-model_output:
+                taskOutputArtifact:
+                  outputArtifactKey: model_output
+                  producerTask: train-custom-model
+            parameters:
+              pipelinechannel--check-model-exists-model_id:
+                taskOutputParameter:
+                  outputParameterKey: model_id
+                  producerTask: check-model-exists
+              pipelinechannel--check-validation-result-validation_result:
+                componentInputParameter: pipelinechannel--check-validation-result-validation_result
+              pipelinechannel--model_labels:
+                componentInputParameter: pipelinechannel--model_labels
+              pipelinechannel--model_name:
+                componentInputParameter: pipelinechannel--model_name
+              pipelinechannel--project:
+                componentInputParameter: pipelinechannel--project
+              pipelinechannel--region:
+                componentInputParameter: pipelinechannel--region
+              pipelinechannel--version_aliases:
+                componentInputParameter: pipelinechannel--version_aliases
+          taskInfo:
+            name: condition-branches-3
+        evaluate-model:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-evaluate-model
+          dependentTasks:
+          - train-custom-model
+          inputs:
+            artifacts:
+              model_input:
+                taskOutputArtifact:
+                  outputArtifactKey: model_output
+                  producerTask: train-custom-model
+            parameters:
+              dataset_id:
+                componentInputParameter: pipelinechannel--dataset_id
+              feature_table_id:
+                componentInputParameter: pipelinechannel--feature_table_id
+              project:
+                componentInputParameter: pipelinechannel--project
+              target_column:
+                componentInputParameter: pipelinechannel--target_column
+          taskInfo:
+            name: evaluate-model
+        prepare-features:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-prepare-features
+          inputs:
+            parameters:
+              dataset_id:
+                componentInputParameter: pipelinechannel--dataset_id
+              feature_bq_table:
+                componentInputParameter: pipelinechannel--feature_table_id
+              is_monitoring:
+                runtimeValue:
+                  constant: false
+              project:
+                componentInputParameter: pipelinechannel--project
+              raw_data_bq_table:
+                componentInputParameter: pipelinechannel--source_table_id
+              region:
+                componentInputParameter: pipelinechannel--dataset_region
+              required_columns:
+                componentInputParameter: pipelinechannel--required_columns
+              top_k:
+                componentInputParameter: pipelinechannel--top_k_feat_prep
+              write_disposition:
+                componentInputParameter: pipelinechannel--write_disposition_feature_load
+          taskInfo:
+            name: prepare-features
+        train-custom-model:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-train-custom-model
+          dependentTasks:
+          - prepare-features
+          inputs:
+            parameters:
+              dataset_id:
+                componentInputParameter: pipelinechannel--dataset_id
+              feature_table_id:
+                componentInputParameter: pipelinechannel--feature_table_id
+              project:
+                componentInputParameter: pipelinechannel--project
+              target_column:
+                componentInputParameter: pipelinechannel--target_column
+          taskInfo:
+            name: train-custom-model
+    inputDefinitions:
+      parameters:
+        pipelinechannel--check-validation-result-validation_result:
+          parameterType: BOOLEAN
+        pipelinechannel--dataset_id:
+          parameterType: STRING
+        pipelinechannel--dataset_region:
+          parameterType: STRING
+        pipelinechannel--feature_table_id:
+          parameterType: STRING
+        pipelinechannel--model_labels:
+          parameterType: STRUCT
+        pipelinechannel--model_name:
+          parameterType: STRING
+        pipelinechannel--project:
+          parameterType: STRING
+        pipelinechannel--region:
+          parameterType: STRING
+        pipelinechannel--required_columns:
+          parameterType: LIST
+        pipelinechannel--source_table_id:
+          parameterType: STRING
+        pipelinechannel--target_column:
+          parameterType: STRING
+        pipelinechannel--top_k_feat_prep:
+          parameterType: NUMBER_INTEGER
+        pipelinechannel--version_aliases:
+          parameterType: LIST
+        pipelinechannel--write_disposition_feature_load:
+          parameterType: STRING
+  comp-condition-4:
+    dag:
+      tasks:
+        model-upload:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-model-upload
+          inputs:
+            artifacts:
+              unmanaged_container_model:
+                componentInputArtifact: pipelinechannel--train-custom-model-model_output
+            parameters:
+              display_name:
+                componentInputParameter: pipelinechannel--model_name
+              labels:
+                componentInputParameter: pipelinechannel--model_labels
+              location:
+                componentInputParameter: pipelinechannel--region
+              project:
+                componentInputParameter: pipelinechannel--project
+              version_aliases:
+                componentInputParameter: pipelinechannel--version_aliases
+          taskInfo:
+            name: model-upload
+    inputDefinitions:
+      artifacts:
+        pipelinechannel--train-custom-model-model_output:
+          artifactType:
+            schemaTitle: google.UnmanagedContainerModel
+            schemaVersion: 0.0.1
+      parameters:
+        pipelinechannel--check-model-exists-model_id:
+          parameterType: STRING
+        pipelinechannel--check-validation-result-validation_result:
+          parameterType: BOOLEAN
+        pipelinechannel--model_labels:
+          parameterType: STRUCT
+        pipelinechannel--model_name:
+          parameterType: STRING
+        pipelinechannel--project:
+          parameterType: STRING
+        pipelinechannel--region:
+          parameterType: STRING
+        pipelinechannel--version_aliases:
+          parameterType: LIST
+  comp-condition-5:
+    dag:
+      tasks:
+        model-get:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-model-get
+          inputs:
+            parameters:
+              location:
+                componentInputParameter: pipelinechannel--region
+              model_name:
+                componentInputParameter: pipelinechannel--check-model-exists-model_id
+              project:
+                componentInputParameter: pipelinechannel--project
+          taskInfo:
+            name: model-get
+        model-upload-2:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-model-upload-2
+          dependentTasks:
+          - model-get
+          inputs:
+            artifacts:
+              parent_model:
+                taskOutputArtifact:
+                  outputArtifactKey: model
+                  producerTask: model-get
+              unmanaged_container_model:
+                componentInputArtifact: pipelinechannel--train-custom-model-model_output
+            parameters:
+              display_name:
+                componentInputParameter: pipelinechannel--model_name
+              labels:
+                componentInputParameter: pipelinechannel--model_labels
+              location:
+                componentInputParameter: pipelinechannel--region
+              project:
+                componentInputParameter: pipelinechannel--project
+              version_aliases:
+                componentInputParameter: pipelinechannel--version_aliases
+          taskInfo:
+            name: model-upload-2
+    inputDefinitions:
+      artifacts:
+        pipelinechannel--train-custom-model-model_output:
+          artifactType:
+            schemaTitle: google.UnmanagedContainerModel
+            schemaVersion: 0.0.1
+      parameters:
+        pipelinechannel--check-model-exists-model_id:
+          parameterType: STRING
+        pipelinechannel--check-validation-result-validation_result:
+          parameterType: BOOLEAN
+        pipelinechannel--model_labels:
+          parameterType: STRUCT
+        pipelinechannel--model_name:
+          parameterType: STRING
+        pipelinechannel--project:
+          parameterType: STRING
+        pipelinechannel--region:
+          parameterType: STRING
+        pipelinechannel--version_aliases:
+          parameterType: LIST
+  comp-condition-branches-3:
+    dag:
+      tasks:
+        condition-4:
+          componentRef:
+            name: comp-condition-4
+          inputs:
+            artifacts:
+              pipelinechannel--train-custom-model-model_output:
+                componentInputArtifact: pipelinechannel--train-custom-model-model_output
+            parameters:
+              pipelinechannel--check-model-exists-model_id:
+                componentInputParameter: pipelinechannel--check-model-exists-model_id
+              pipelinechannel--check-validation-result-validation_result:
+                componentInputParameter: pipelinechannel--check-validation-result-validation_result
+              pipelinechannel--model_labels:
+                componentInputParameter: pipelinechannel--model_labels
+              pipelinechannel--model_name:
+                componentInputParameter: pipelinechannel--model_name
+              pipelinechannel--project:
+                componentInputParameter: pipelinechannel--project
+              pipelinechannel--region:
+                componentInputParameter: pipelinechannel--region
+              pipelinechannel--version_aliases:
+                componentInputParameter: pipelinechannel--version_aliases
+          taskInfo:
+            name: condition-4
+          triggerPolicy:
+            condition: inputs.parameter_values['pipelinechannel--check-model-exists-model_id']
+              == 'None'
+        condition-5:
+          componentRef:
+            name: comp-condition-5
+          inputs:
+            artifacts:
+              pipelinechannel--train-custom-model-model_output:
+                componentInputArtifact: pipelinechannel--train-custom-model-model_output
+            parameters:
+              pipelinechannel--check-model-exists-model_id:
+                componentInputParameter: pipelinechannel--check-model-exists-model_id
+              pipelinechannel--check-validation-result-validation_result:
+                componentInputParameter: pipelinechannel--check-validation-result-validation_result
+              pipelinechannel--model_labels:
+                componentInputParameter: pipelinechannel--model_labels
+              pipelinechannel--model_name:
+                componentInputParameter: pipelinechannel--model_name
+              pipelinechannel--project:
+                componentInputParameter: pipelinechannel--project
+              pipelinechannel--region:
+                componentInputParameter: pipelinechannel--region
+              pipelinechannel--version_aliases:
+                componentInputParameter: pipelinechannel--version_aliases
+          taskInfo:
+            name: condition-5
+          triggerPolicy:
+            condition: '!(inputs.parameter_values[''pipelinechannel--check-model-exists-model_id'']
+              == ''None'')'
+    inputDefinitions:
+      artifacts:
+        pipelinechannel--train-custom-model-model_output:
+          artifactType:
+            schemaTitle: google.UnmanagedContainerModel
+            schemaVersion: 0.0.1
+      parameters:
+        pipelinechannel--check-model-exists-model_id:
+          parameterType: STRING
+        pipelinechannel--check-validation-result-validation_result:
+          parameterType: BOOLEAN
+        pipelinechannel--model_labels:
+          parameterType: STRUCT
+        pipelinechannel--model_name:
+          parameterType: STRING
+        pipelinechannel--project:
+          parameterType: STRING
+        pipelinechannel--region:
+          parameterType: STRING
+        pipelinechannel--version_aliases:
+          parameterType: LIST
+  comp-evaluate-model:
+    executorLabel: exec-evaluate-model
+    inputDefinitions:
+      artifacts:
+        model_input:
+          artifactType:
+            schemaTitle: google.UnmanagedContainerModel
+            schemaVersion: 0.0.1
+      parameters:
+        dataset_id:
+          parameterType: STRING
+        feature_table_id:
+          parameterType: STRING
+        project:
+          parameterType: STRING
+        target_column:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+  comp-exit-handler-1:
+    dag:
+      tasks:
+        bigquery-query-job:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-bigquery-query-job
+          dependentTasks:
+          - fetch-validation-script
+          inputs:
+            parameters:
+              location:
+                componentInputParameter: pipelinechannel--dataset_region
+              project:
+                componentInputParameter: pipelinechannel--project
+              query:
+                taskOutputParameter:
+                  outputParameterKey: output_script
+                  producerTask: fetch-validation-script
+          taskInfo:
+            name: bigquery-query-job
+        bq-load:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-bq-load
+          inputs:
+            parameters:
+              dataset_id:
+                componentInputParameter: pipelinechannel--dataset_id
+              gcs_source_dir:
+                componentInputParameter: pipelinechannel--source_gcs_dir
+              is_monitoring:
+                runtimeValue:
+                  constant: false
+              project:
+                componentInputParameter: pipelinechannel--project
+              region:
+                componentInputParameter: pipelinechannel--dataset_region
+              table_id:
+                componentInputParameter: pipelinechannel--source_table_id
+              write_disposition:
+                componentInputParameter: pipelinechannel--write_disposition_bq_load
+          taskInfo:
+            name: bq-load
+        check-validation-result:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-check-validation-result
+          dependentTasks:
+          - bigquery-query-job
+          inputs:
+            parameters:
+              dataset_id:
+                componentInputParameter: pipelinechannel--dataset_id
+              project_id:
+                componentInputParameter: pipelinechannel--project
+              region:
+                componentInputParameter: pipelinechannel--dataset_region
+          taskInfo:
+            name: check-validation-result
+        condition-2:
+          componentRef:
+            name: comp-condition-2
+          dependentTasks:
+          - check-validation-result
+          inputs:
+            parameters:
+              pipelinechannel--check-validation-result-validation_result:
+                taskOutputParameter:
+                  outputParameterKey: validation_result
+                  producerTask: check-validation-result
+              pipelinechannel--dataset_id:
+                componentInputParameter: pipelinechannel--dataset_id
+              pipelinechannel--dataset_region:
+                componentInputParameter: pipelinechannel--dataset_region
+              pipelinechannel--feature_table_id:
+                componentInputParameter: pipelinechannel--feature_table_id
+              pipelinechannel--model_labels:
+                componentInputParameter: pipelinechannel--model_labels
+              pipelinechannel--model_name:
+                componentInputParameter: pipelinechannel--model_name
+              pipelinechannel--project:
+                componentInputParameter: pipelinechannel--project
+              pipelinechannel--region:
+                componentInputParameter: pipelinechannel--region
+              pipelinechannel--required_columns:
+                componentInputParameter: pipelinechannel--required_columns
+              pipelinechannel--source_table_id:
+                componentInputParameter: pipelinechannel--source_table_id
+              pipelinechannel--target_column:
+                componentInputParameter: pipelinechannel--target_column
+              pipelinechannel--top_k_feat_prep:
+                componentInputParameter: pipelinechannel--top_k_feat_prep
+              pipelinechannel--version_aliases:
+                componentInputParameter: pipelinechannel--version_aliases
+              pipelinechannel--write_disposition_feature_load:
+                componentInputParameter: pipelinechannel--write_disposition_feature_load
+          taskInfo:
+            name: condition-2
+          triggerPolicy:
+            condition: inputs.parameter_values['pipelinechannel--check-validation-result-validation_result']
+              == true
+        fetch-validation-script:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-fetch-validation-script
+          dependentTasks:
+          - bq-load
+          inputs:
+            parameters:
+              sql_params:
+                componentInputParameter: pipelinechannel--validation_sql_params
+              validation_script_path:
+                componentInputParameter: pipelinechannel--validation_script_path
+          taskInfo:
+            name: fetch-validation-script
+    inputDefinitions:
+      parameters:
+        pipelinechannel--dataset_id:
+          parameterType: STRING
+        pipelinechannel--dataset_region:
+          parameterType: STRING
+        pipelinechannel--feature_table_id:
+          parameterType: STRING
+        pipelinechannel--model_labels:
+          parameterType: STRUCT
+        pipelinechannel--model_name:
+          parameterType: STRING
+        pipelinechannel--project:
+          parameterType: STRING
+        pipelinechannel--region:
+          parameterType: STRING
+        pipelinechannel--required_columns:
+          parameterType: LIST
+        pipelinechannel--source_gcs_dir:
+          parameterType: STRING
+        pipelinechannel--source_table_id:
+          parameterType: STRING
+        pipelinechannel--target_column:
+          parameterType: STRING
+        pipelinechannel--top_k_feat_prep:
+          parameterType: NUMBER_INTEGER
+        pipelinechannel--validation_script_path:
+          parameterType: STRING
+        pipelinechannel--validation_sql_params:
+          parameterType: STRUCT
+        pipelinechannel--version_aliases:
+          parameterType: LIST
+        pipelinechannel--write_disposition_bq_load:
+          parameterType: STRING
+        pipelinechannel--write_disposition_feature_load:
+          parameterType: STRING
+  comp-fetch-validation-script:
+    executorLabel: exec-fetch-validation-script
+    inputDefinitions:
+      parameters:
+        sql_params:
+          parameterType: STRUCT
+        validation_script_path:
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        output_script:
+          parameterType: STRING
+  comp-model-get:
+    executorLabel: exec-model-get
+    inputDefinitions:
+      parameters:
+        location:
+          defaultValue: us-central1
+          description: Location from which to get the VertexModel. Defaults to `us-central1`.
+          isOptional: true
+          parameterType: STRING
+        model_name:
+          description: 'Specify the model name in one of the following formats: {model}:
+            Fetches the default model version. {model}@{model_version_id}: Fetches
+            the model version specified by its ID. {model}@{model_version_alias}:
+            Fetches the model version specified by its alias.'
+          parameterType: STRING
+        project:
+          defaultValue: '{{$.pipeline_google_cloud_project_id}}'
+          description: Project from which to get the VertexModel. Defaults to the
+            project in which the PipelineJob is run.
+          isOptional: true
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        model:
+          artifactType:
+            schemaTitle: google.VertexModel
+            schemaVersion: 0.0.1
+          description: Artifact of the Vertex Model.
+  comp-model-upload:
+    executorLabel: exec-model-upload
+    inputDefinitions:
+      artifacts:
+        parent_model:
+          artifactType:
+            schemaTitle: google.VertexModel
+            schemaVersion: 0.0.1
+          description: An artifact of a model which to upload a new version to. Only
+            specify this field when uploading a new version. [More information.](https://cloud.google.com/vertex-ai/docs/reference/rest/v1/projects.locations.models/upload#request-body)
+          isOptional: true
+        unmanaged_container_model:
+          artifactType:
+            schemaTitle: google.UnmanagedContainerModel
+            schemaVersion: 0.0.1
+          description: 'The unmanaged container model to be uploaded.  The Model can
+            be passed from an upstream step or imported via a KFP `dsl.importer`.
+            Example:
+
+            from kfp import dsl
+
+            from google_cloud_pipeline_components.types import artifact_types
+
+
+            importer_spec = dsl.importer( artifact_uri=''gs://managed-pipeline-gcpc-e2e-test/automl-tabular/model'',
+            artifact_class=artifact_types.UnmanagedContainerModel, metadata={ ''containerSpec'':
+            { ''imageUri'': ''us-docker.pkg.dev/vertex-ai/automl-tabular/prediction-server:prod''
+            } })'
+          isOptional: true
+      parameters:
+        description:
+          defaultValue: ''
+          description: The description of the Model. [More information.](https://cloud.google.com/vertex-ai/docs/reference/rest/v1/projects.locations.models#Model)
+          isOptional: true
+          parameterType: STRING
+        display_name:
+          description: The display name of the Model. The name can be up to 128 characters
+            long and can be consist of any UTF-8 characters. [More information.](https://cloud.google.com/vertex-ai/docs/reference/rest/v1/projects.locations.models#Model)
+          parameterType: STRING
+        encryption_spec_key_name:
+          defaultValue: ''
+          description: 'Customer-managed encryption key spec for a Model. If set,
+            this Model and all sub-resources of this Model will be secured by this
+            key.  Has the form: `projects/my-project/locations/my-location/keyRings/my-kr/cryptoKeys/my-key`.
+            The key needs to be in the same region as where the compute resource is
+            created.'
+          isOptional: true
+          parameterType: STRING
+        explanation_metadata:
+          defaultValue: {}
+          description: Metadata describing the Model's input and output for explanation.
+            Both `explanation_metadata` and `explanation_parameters` must be passed
+            together when used. [More information.](https://cloud.google.com/vertex-ai/docs/reference/rest/v1/ExplanationSpec#explanationmetadata)
+          isOptional: true
+          parameterType: STRUCT
+        explanation_parameters:
+          defaultValue: {}
+          description: Parameters to configure explaining for Model's predictions.  [More
+            information.](https://cloud.google.com/vertex-ai/docs/reference/rest/v1/ExplanationSpec#ExplanationParameters)
+          isOptional: true
+          parameterType: STRUCT
+        labels:
+          defaultValue: {}
+          description: The labels with user-defined metadata to organize your model.  Label
+            keys and values can be no longer than 64 characters (Unicode codepoints),
+            can only contain lowercase letters, numeric characters, underscores and
+            dashes. International characters are allowed.  See https://goo.gl/xmQnxf
+            for more information and examples of labels.
+          isOptional: true
+          parameterType: STRUCT
+        location:
+          defaultValue: us-central1
+          description: Optional location to upload this Model to. If not set, defaults
+            to `us-central1`.
+          isOptional: true
+          parameterType: STRING
+        project:
+          defaultValue: '{{$.pipeline_google_cloud_project_id}}'
+          description: Project to upload this Model to. Defaults to the project in
+            which the PipelineJob is run.
+          isOptional: true
+          parameterType: STRING
+        version_aliases:
+          defaultValue: []
+          description: User provided version aliases so that a model version can be
+            referenced via alias (i.e. `projects/{project}/locations/{location}/models/{modelId}@{version_alias}`
+            instead of auto-generated version id (i.e. `projects/{project}/locations/{location}/models/{modelId}@{versionId}`).
+            The format is [a-z][a-zA-Z0-9-]{0,126}[a-z0-9] to distinguish from versionId.
+            A default version alias will be created for the first version of the model,
+            and there must be exactly one default version alias for a model.
+          isOptional: true
+          parameterType: LIST
+    outputDefinitions:
+      artifacts:
+        model:
+          artifactType:
+            schemaTitle: google.VertexModel
+            schemaVersion: 0.0.1
+          description: Artifact tracking the created Model version.
+      parameters:
+        gcp_resources:
+          description: Serialized JSON of `gcp_resources` [proto](https://github.com/kubeflow/pipelines/tree/master/components/google-cloud/google_cloud_pipeline_components/proto)
+            which tracks the upload Model's long-running operation.
+          parameterType: STRING
+  comp-model-upload-2:
+    executorLabel: exec-model-upload-2
+    inputDefinitions:
+      artifacts:
+        parent_model:
+          artifactType:
+            schemaTitle: google.VertexModel
+            schemaVersion: 0.0.1
+          description: An artifact of a model which to upload a new version to. Only
+            specify this field when uploading a new version. [More information.](https://cloud.google.com/vertex-ai/docs/reference/rest/v1/projects.locations.models/upload#request-body)
+          isOptional: true
+        unmanaged_container_model:
+          artifactType:
+            schemaTitle: google.UnmanagedContainerModel
+            schemaVersion: 0.0.1
+          description: 'The unmanaged container model to be uploaded.  The Model can
+            be passed from an upstream step or imported via a KFP `dsl.importer`.
+            Example:
+
+            from kfp import dsl
+
+            from google_cloud_pipeline_components.types import artifact_types
+
+
+            importer_spec = dsl.importer( artifact_uri=''gs://managed-pipeline-gcpc-e2e-test/automl-tabular/model'',
+            artifact_class=artifact_types.UnmanagedContainerModel, metadata={ ''containerSpec'':
+            { ''imageUri'': ''us-docker.pkg.dev/vertex-ai/automl-tabular/prediction-server:prod''
+            } })'
+          isOptional: true
+      parameters:
+        description:
+          defaultValue: ''
+          description: The description of the Model. [More information.](https://cloud.google.com/vertex-ai/docs/reference/rest/v1/projects.locations.models#Model)
+          isOptional: true
+          parameterType: STRING
+        display_name:
+          description: The display name of the Model. The name can be up to 128 characters
+            long and can be consist of any UTF-8 characters. [More information.](https://cloud.google.com/vertex-ai/docs/reference/rest/v1/projects.locations.models#Model)
+          parameterType: STRING
+        encryption_spec_key_name:
+          defaultValue: ''
+          description: 'Customer-managed encryption key spec for a Model. If set,
+            this Model and all sub-resources of this Model will be secured by this
+            key.  Has the form: `projects/my-project/locations/my-location/keyRings/my-kr/cryptoKeys/my-key`.
+            The key needs to be in the same region as where the compute resource is
+            created.'
+          isOptional: true
+          parameterType: STRING
+        explanation_metadata:
+          defaultValue: {}
+          description: Metadata describing the Model's input and output for explanation.
+            Both `explanation_metadata` and `explanation_parameters` must be passed
+            together when used. [More information.](https://cloud.google.com/vertex-ai/docs/reference/rest/v1/ExplanationSpec#explanationmetadata)
+          isOptional: true
+          parameterType: STRUCT
+        explanation_parameters:
+          defaultValue: {}
+          description: Parameters to configure explaining for Model's predictions.  [More
+            information.](https://cloud.google.com/vertex-ai/docs/reference/rest/v1/ExplanationSpec#ExplanationParameters)
+          isOptional: true
+          parameterType: STRUCT
+        labels:
+          defaultValue: {}
+          description: The labels with user-defined metadata to organize your model.  Label
+            keys and values can be no longer than 64 characters (Unicode codepoints),
+            can only contain lowercase letters, numeric characters, underscores and
+            dashes. International characters are allowed.  See https://goo.gl/xmQnxf
+            for more information and examples of labels.
+          isOptional: true
+          parameterType: STRUCT
+        location:
+          defaultValue: us-central1
+          description: Optional location to upload this Model to. If not set, defaults
+            to `us-central1`.
+          isOptional: true
+          parameterType: STRING
+        project:
+          defaultValue: '{{$.pipeline_google_cloud_project_id}}'
+          description: Project to upload this Model to. Defaults to the project in
+            which the PipelineJob is run.
+          isOptional: true
+          parameterType: STRING
+        version_aliases:
+          defaultValue: []
+          description: User provided version aliases so that a model version can be
+            referenced via alias (i.e. `projects/{project}/locations/{location}/models/{modelId}@{version_alias}`
+            instead of auto-generated version id (i.e. `projects/{project}/locations/{location}/models/{modelId}@{versionId}`).
+            The format is [a-z][a-zA-Z0-9-]{0,126}[a-z0-9] to distinguish from versionId.
+            A default version alias will be created for the first version of the model,
+            and there must be exactly one default version alias for a model.
+          isOptional: true
+          parameterType: LIST
+    outputDefinitions:
+      artifacts:
+        model:
+          artifactType:
+            schemaTitle: google.VertexModel
+            schemaVersion: 0.0.1
+          description: Artifact tracking the created Model version.
+      parameters:
+        gcp_resources:
+          description: Serialized JSON of `gcp_resources` [proto](https://github.com/kubeflow/pipelines/tree/master/components/google-cloud/google_cloud_pipeline_components/proto)
+            which tracks the upload Model's long-running operation.
+          parameterType: STRING
+  comp-prepare-features:
+    executorLabel: exec-prepare-features
+    inputDefinitions:
+      parameters:
+        dataset_id:
+          parameterType: STRING
+        feature_bq_table:
+          parameterType: STRING
+        is_monitoring:
+          parameterType: BOOLEAN
+        project:
+          parameterType: STRING
+        raw_data_bq_table:
+          parameterType: STRING
+        region:
+          parameterType: STRING
+        required_columns:
+          parameterType: LIST
+        top_k:
+          defaultValue: 5.0
+          isOptional: true
+          parameterType: NUMBER_INTEGER
+        write_disposition:
+          defaultValue: WRITE_TRUNCATE
+          isOptional: true
+          parameterType: STRING
+  comp-train-custom-model:
+    executorLabel: exec-train-custom-model
+    inputDefinitions:
+      parameters:
+        dataset_id:
+          parameterType: STRING
+        feature_table_id:
+          parameterType: STRING
+        project:
+          parameterType: STRING
+        target_column:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        model_output:
+          artifactType:
+            schemaTitle: google.UnmanagedContainerModel
+            schemaVersion: 0.0.1
+  comp-vertex-pipelines-notification-email:
+    executorLabel: exec-vertex-pipelines-notification-email
+    inputDefinitions:
+      parameters:
+        pipeline_task_final_status:
+          isOptional: true
+          parameterType: TASK_FINAL_STATUS
+        recipients:
+          description: A list of email addresses to send a notification to.
+          parameterType: LIST
+defaultPipelineRoot: gs://mlops_ref/pipeline-runs/
+deploymentSpec:
+  executors:
+    exec-bigquery-query-job:
+      container:
+        args:
+        - --type
+        - BigqueryQueryJob
+        - --project
+        - '{{$.inputs.parameters[''project'']}}'
+        - --location
+        - '{{$.inputs.parameters[''location'']}}'
+        - --payload
+        - '{"Concat": ["{", "\"configuration\": {", "\"query\": ", "{{$.inputs.parameters[''job_configuration_query'']}}",
+          ", \"labels\": ", "{{$.inputs.parameters[''labels'']}}", "}", "}"]}'
+        - --job_configuration_query_override
+        - '{"Concat": ["{", "\"query\": \"", "{{$.inputs.parameters[''query'']}}",
+          "\"", ", \"query_parameters\": ", "{{$.inputs.parameters[''query_parameters'']}}",
+          ", \"destination_encryption_configuration\": {", "\"kmsKeyName\": \"", "{{$.inputs.parameters[''encryption_spec_key_name'']}}",
+          "\"}", "}"]}'
+        - --gcp_resources
+        - '{{$.outputs.parameters[''gcp_resources''].output_file}}'
+        - --executor_input
+        - '{{$}}'
+        command:
+        - python3
+        - -u
+        - -m
+        - google_cloud_pipeline_components.container.v1.bigquery.query_job.launcher
+        image: gcr.io/ml-pipeline/google-cloud-pipeline-components:2.22.0
+    exec-bq-load:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - bq_load
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'google-cloud-bigquery'\
+          \ 'google-cloud-storage'  &&  python3 -m pip install --quiet --no-warn-script-location\
+          \ 'kfp==2.14.6' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"\
+          3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef bq_load(\n    project: str,\n    gcs_source_dir: str,\n    dataset_id:\
+          \ str,\n    table_id: str,\n    write_disposition: str,\n    raw_data: Output[Dataset],\n\
+          \    is_monitoring: bool,\n    region: str = \"US\",\n)-> NamedTuple(\"\
+          Outputs\", [(\"load_result\", bool)]):\n\n    from google.cloud import bigquery\n\
+          \    from google.cloud import storage\n    from google.api_core.exceptions\
+          \ import NotFound\n    from datetime import datetime, timedelta, timezone\n\
+          \n    client = bigquery.Client(project=project, location=region)\n    storage_client\
+          \ = storage.Client(project=project)\n\n    # 1. Clean the base URI\n   \
+          \ if not gcs_source_dir.startswith(\"gs://\"):\n        raise ValueError(\"\
+          gcs_source_dir must start with 'gs://'\")\n\n    # Ensure base path ends\
+          \ with / for easy concatenation\n    base_uri = gcs_source_dir if gcs_source_dir.endswith(\"\
+          /\") else gcs_source_dir + \"/\"\n\n    # 2. Determine target file path\
+          \ based on mode\n    if is_monitoring:\n        # Monitoring looks for:\
+          \ gs://.../YYYY-MM-DD/dataset.csv\n        yesterday_str = (datetime.now(timezone.utc)\
+          \ - timedelta(days=1)).strftime('%Y-%m-%d')\n        target_gcs_uri = f\"\
+          {base_uri}{yesterday_str}/dataset.csv\"\n    else:\n        # Training looks\
+          \ for: gs://.../training_data/healthcare_dataset.csv\n        target_gcs_uri\
+          \ = f\"{base_uri}training_data/healthcare_dataset.csv\"\n\n    print(f\"\
+          Targeting URI: {target_gcs_uri}\")\n\n    # 3. Extract bucket and blob for\
+          \ existence check\n    uri_parts = target_gcs_uri[5:].split(\"/\", 1)\n\
+          \    bucket_name = uri_parts[0]\n    blob_name = uri_parts[1]\n\n    # 4.\
+          \ Check if the file actually exists\n    bucket = storage_client.bucket(bucket_name)\n\
+          \    blob = bucket.blob(blob_name)\n\n    if not blob.exists():\n      \
+          \  if is_monitoring:\n            print(f\" Monitoring: No data found for\
+          \ {yesterday_str} at {target_gcs_uri}\")\n            return (False,)\n\
+          \        else:\n            raise FileNotFoundError(f\" Training: Required\
+          \ file not found at {target_gcs_uri}\")\n\n    table_path = f\"{project}.{dataset_id}.{table_id}\"\
+          \n    try:\n        client.get_table(table_path)\n    except NotFound:\n\
+          \        print(f\"Table {table_path} not found. Creating with ingestion_time\
+          \ column...\")\n        # We create an empty table first to define the special\
+          \ column\n        # BigQuery will then use 'autodetect' to add the rest\
+          \ of the columns during the load\n        query = f\"\"\"\n            CREATE\
+          \ TABLE `{table_path}` (\n                ingestion_time TIMESTAMP DEFAULT\
+          \ CURRENT_TIMESTAMP()\n            )\n        \"\"\"\n        client.query(query).result()\n\
+          \n    job_config = bigquery.LoadJobConfig(\n        source_format=bigquery.SourceFormat.CSV,\n\
+          \        skip_leading_rows=1,\n        write_disposition=write_disposition,\n\
+          \        autodetect=True,\n        # 'allow_jagged_rows' allows the CSV\
+          \ to have fewer columns than the BQ table\n        # which lets BQ fill\
+          \ our 'ingestion_time' with the default value\n        allow_jagged_rows=True,\n\
+          \        # Allow adding new columns from the CSV to the existing table schema\n\
+          \        schema_update_options=[\n            bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION\n\
+          \        ],\n    )\n    try:\n        load_job = client.load_table_from_uri(\n\
+          \            target_gcs_uri,\n            table_path,\n            job_config=job_config,\n\
+          \        )\n\n        load_job.result()  # Waits for the job to complete.\n\
+          \        print(f\"Loaded {load_job.output_rows} rows into {dataset_id}:{table_id}.\"\
+          )\n\n    except Exception as e:\n        raise RuntimeError(\n         \
+          \   f\"BigQuery load failed for {target_gcs_uri} \"\n            f\"into\
+          \ {project}.{dataset_id}.{table_id}: {e}\"\n        ) from e\n\n    raw_data.uri\
+          \ = \"bq://\" + project + \".\" + dataset_id + \".\" + table_id\n    return\
+          \ (True,)\n\n"
+        image: python:3.10
+    exec-check-model-exists:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - check_model_exists
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'google-cloud-aiplatform'\
+          \  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.14.6'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef check_model_exists(model_name: str, project: str, location: str)\
+          \ -> NamedTuple('Outputs',[('model_id', str)]):\n    from google.cloud import\
+          \ aiplatform\n    import re\n\n    try:\n        aiplatform.init(project=project,\
+          \ location=location)\n        filter_expression = f'displayName=\"{model_name}\"\
+          '\n        models = aiplatform.Model.list(filter=filter_expression)\n\n\
+          \        if len(models) == 0:\n            return (\"None\",)\n        else:\n\
+          \            m = re.search(r\"models/([^/]+)$\", models[0].resource_name)\n\
+          \            model_id = m.group(1)\n            print(model_id)\n      \
+          \      return (model_id,)\n\n    except Exception:\n        print(f\"Model\
+          \ {model_name} not found\")\n        return (\"None\",)\n\n"
+        image: python:3.10
+    exec-check-validation-result:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - check_validation_result
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'google-cloud-bigquery'\
+          \  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.14.6'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef check_validation_result(\n    project_id: str,\n    dataset_id:\
+          \ str, \n    result_output: Output[Artifact],\n    region: str = \"US\"\
+          , \n) -> NamedTuple('Outputs', [('validation_result', bool)]):\n    import\
+          \ json, os\n    from google.cloud import bigquery\n\n    os.makedirs(result_output.path,\
+          \ exist_ok=True)\n    output_dir = os.path.join(result_output.path + '/validation_result.json')\n\
+          \n    client = bigquery.Client(project=project_id, location=region)\n  \
+          \  query = f\"\"\"\n     SELECT * from \n     `{project_id}.{dataset_id}.validation_results`\n\
+          \     where validated_table = '{project_id}.{dataset_id}.healthcare_raw_data'\n\
+          \     order by run_ts desc\n     limit 1;\n    \"\"\"\n    try:\n      \
+          \  query_job = client.query(query)\n        results = query_job.result()\n\
+          \        row = dict(next(results, None))\n        if row: \n           \
+          \ with open(output_dir, 'w') as f:\n                json.dump(row, f, default=str)\n\
+          \            return (row['passed'],)\n    except Exception as e:\n     \
+          \   raise RuntimeError(f\"Failed to execute query\")\n\n"
+        image: python:3.10
+    exec-evaluate-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - evaluate_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas==2.0.3'\
+          \ 'scikit-learn==1.3.2' 'google-cloud-bigquery' 'joblib==1.3.2' 'pyarrow'\
+          \ 'db-dtypes' 'google-cloud-pipeline-components'  &&  python3 -m pip install\
+          \ --quiet --no-warn-script-location 'kfp==2.14.6' '--no-deps' 'typing-extensions>=3.7.4,<5;\
+          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\nfrom google_cloud_pipeline_components.types.artifact_types import UnmanagedContainerModel\n\
+          \ndef evaluate_model(\n    project: str,\n    dataset_id: str,\n    feature_table_id:\
+          \ str,\n    target_column: str,\n    model_input: Input[UnmanagedContainerModel],\n\
+          \    metrics: Output[Metrics]\n):\n    import pandas as pd\n    import joblib\n\
+          \    import os\n    from google.cloud import bigquery\n    from sklearn.metrics\
+          \ import accuracy_score, precision_score, recall_score, f1_score\n    from\
+          \ sklearn.model_selection import train_test_split\n\n    # 1. Load Data\
+          \ in batches - only sample 10000 rows to avoid memory issues\n    client\
+          \ = bigquery.Client(project=project)\n    query = f\"SELECT * FROM `{project}.{dataset_id}.{feature_table_id}`\"\
+          \n    df = client.query(query).to_dataframe()\n\n    _, test_df = train_test_split(df,\
+          \ test_size=0.2, random_state=42)\n\n    # 3. Prepare Test Features\n  \
+          \  drop_cols = [target_column, \"record_id\", \"feature_timestamp\"] \n\
+          \    X_test = test_df.drop(columns=[c for c in drop_cols if c in test_df.columns])\n\
+          \    y_test = test_df[target_column]\n\n    # 2. Load Model\n    model_path\
+          \ = os.path.join(model_input.path, \"model.joblib\")\n    model = joblib.load(model_path)\n\
+          \n    # 3. Predict and Evaluate\n    y_pred = model.predict(X_test)\n  \
+          \  acc = accuracy_score(y_test, y_pred)\n    precision = precision_score(y_test,\
+          \ y_pred, average='weighted', zero_division=0)\n    recall = recall_score(y_test,\
+          \ y_pred, average='weighted', zero_division=0)\n    f1 = f1_score(y_test,\
+          \ y_pred, average='weighted', zero_division=0)\n\n    # 4. Log to Vertex\
+          \ AI UI\n    metrics.log_metric(\"accuracy\", float(acc))\n    metrics.log_metric(\"\
+          precision\", float(precision))\n    metrics.log_metric(\"recall\", float(recall))\n\
+          \    metrics.log_metric(\"f1_score\", float(f1))\n\n"
+        image: python:3.9
+    exec-fetch-validation-script:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - fetch_validation_script
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'google-cloud-storage'\
+          \  &&  python3 -m pip install --quiet --no-warn-script-location 'kfp==2.14.6'\
+          \ '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"' && \"\
+          $0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef fetch_validation_script(\n    validation_script_path: str,\n\
+          \    sql_params: dict,\n    # output_script: Output[Artifact]\n) -> NamedTuple('Outputs',\
+          \ [('output_script', str)]):\n    \"\"\"\n    Downloads SQL script from\
+          \ GCS and executes it in BigQuery.\n    Returns: job_id (string) of the\
+          \ executed BigQuery job.\n    \"\"\"\n    from google.cloud import storage\n\
+          \n    if not validation_script_path.startswith(\"gs://\"):\n        raise\
+          \ ValueError(\"validation_script_path must start with gs://\")\n\n    _,\
+          \ path_after = validation_script_path.split(\"gs://\", 1)\n    bucket_name,\
+          \ _, blob_path = path_after.partition(\"/\")\n\n    storage_client = storage.Client()\n\
+          \    blob = storage_client.bucket(bucket_name).blob(blob_path)\n    raw_script\
+          \ = blob.download_as_text()\n    formatted_script =  raw_script.format(**sql_params)\n\
+          \n    return (formatted_script,)  # Returning as a tuple to match NamedTuple\
+          \ output\n\n"
+        image: python:3.10
+    exec-model-get:
+      container:
+        args:
+        - --project
+        - '{{$.inputs.parameters[''project'']}}'
+        - --location
+        - '{{$.inputs.parameters[''location'']}}'
+        - --model_name
+        - '{{$.inputs.parameters[''model_name'']}}'
+        - --executor_input
+        - '{{$}}'
+        command:
+        - python3
+        - -u
+        - -m
+        - google_cloud_pipeline_components.container.v1.model.get_model.launcher
+        image: gcr.io/ml-pipeline/google-cloud-pipeline-components:2.22.0
+    exec-model-upload:
+      container:
+        args:
+        - --type
+        - UploadModel
+        - --payload
+        - '{"Concat": ["{", "\"display_name\": \"", "{{$.inputs.parameters[''display_name'']}}",
+          "\"", ", \"description\": \"", "{{$.inputs.parameters[''description'']}}",
+          "\"", ", \"explanation_spec\": {", "\"parameters\": ", "{{$.inputs.parameters[''explanation_parameters'']}}",
+          ", \"metadata\": ", "{{$.inputs.parameters[''explanation_metadata'']}}",
+          "}", ", \"encryption_spec\": {\"kms_key_name\":\"", "{{$.inputs.parameters[''encryption_spec_key_name'']}}",
+          "\"}", ", \"version_aliases\": ", "{{$.inputs.parameters[''version_aliases'']}}",
+          ", \"labels\": ", "{{$.inputs.parameters[''labels'']}}", ", \"pipeline_job\":
+          \"", "projects/{{$.inputs.parameters[''project'']}}/locations/{{$.inputs.parameters[''location'']}}/pipelineJobs/{{$.pipeline_job_uuid}}",
+          "\"", "}"]}'
+        - --project
+        - '{{$.inputs.parameters[''project'']}}'
+        - --location
+        - '{{$.inputs.parameters[''location'']}}'
+        - --gcp_resources
+        - '{{$.outputs.parameters[''gcp_resources''].output_file}}'
+        - --executor_input
+        - '{{$}}'
+        - '{"IfPresent": {"InputName": "parent_model", "Then": ["--parent_model_name",
+          "{{$.inputs.artifacts[''parent_model''].metadata[''resourceName'']}}"]}}'
+        command:
+        - python3
+        - -u
+        - -m
+        - google_cloud_pipeline_components.container.v1.model.upload_model.launcher
+        image: gcr.io/ml-pipeline/google-cloud-pipeline-components:2.22.0
+    exec-model-upload-2:
+      container:
+        args:
+        - --type
+        - UploadModel
+        - --payload
+        - '{"Concat": ["{", "\"display_name\": \"", "{{$.inputs.parameters[''display_name'']}}",
+          "\"", ", \"description\": \"", "{{$.inputs.parameters[''description'']}}",
+          "\"", ", \"explanation_spec\": {", "\"parameters\": ", "{{$.inputs.parameters[''explanation_parameters'']}}",
+          ", \"metadata\": ", "{{$.inputs.parameters[''explanation_metadata'']}}",
+          "}", ", \"encryption_spec\": {\"kms_key_name\":\"", "{{$.inputs.parameters[''encryption_spec_key_name'']}}",
+          "\"}", ", \"version_aliases\": ", "{{$.inputs.parameters[''version_aliases'']}}",
+          ", \"labels\": ", "{{$.inputs.parameters[''labels'']}}", ", \"pipeline_job\":
+          \"", "projects/{{$.inputs.parameters[''project'']}}/locations/{{$.inputs.parameters[''location'']}}/pipelineJobs/{{$.pipeline_job_uuid}}",
+          "\"", "}"]}'
+        - --project
+        - '{{$.inputs.parameters[''project'']}}'
+        - --location
+        - '{{$.inputs.parameters[''location'']}}'
+        - --gcp_resources
+        - '{{$.outputs.parameters[''gcp_resources''].output_file}}'
+        - --executor_input
+        - '{{$}}'
+        - '{"IfPresent": {"InputName": "parent_model", "Then": ["--parent_model_name",
+          "{{$.inputs.artifacts[''parent_model''].metadata[''resourceName'']}}"]}}'
+        command:
+        - python3
+        - -u
+        - -m
+        - google_cloud_pipeline_components.container.v1.model.upload_model.launcher
+        image: gcr.io/ml-pipeline/google-cloud-pipeline-components:2.22.0
+    exec-prepare-features:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - prepare_features
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas' 'numpy'\
+          \ 'google-cloud-bigquery' 'db-dtypes'  &&  python3 -m pip install --quiet\
+          \ --no-warn-script-location 'kfp==2.14.6' '--no-deps' 'typing-extensions>=3.7.4,<5;\
+          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef prepare_features(\n    project: str,\n    region: str,\n    raw_data_bq_table:\
+          \ str,\n    feature_bq_table: str,\n    required_columns: list,\n    dataset_id:\
+          \ str,\n    is_monitoring: bool,\n    top_k: int = 5,\n    write_disposition:\
+          \ str = \"WRITE_TRUNCATE\",\n):\n    \"\"\"\n    Preprocess raw healthcare\
+          \ data and write model-ready features to BigQuery.\n    \"\"\"\n\n    import\
+          \ re\n    import pandas as pd\n    from google.cloud import bigquery\n \
+          \   from google.api_core import exceptions as gcp_exceptions\n\n    # ------------------------------------------------------------------\n\
+          \    # Helpers\n    # ------------------------------------------------------------------\n\
+          \n    def normalize_whitespace(s):\n        if pd.isna(s):\n           \
+          \ return s\n        return re.sub(r\"\\s+\", \" \", str(s)).strip()\n\n\
+          \    def normalize_blood_type(s):\n        if pd.isna(s):\n            return\
+          \ \"UNKNOWN\"\n        x = str(s).strip().upper().replace(\" \", \"\")\n\
+          \        if re.fullmatch(r\"(A|B|AB|O)[+-]\", x):\n            return x\n\
+          \        return \"UNKNOWN\"\n\n    def topk_map(series: pd.Series, k: int)\
+          \ -> pd.Series:\n        series = series.fillna(\"UNKNOWN\")\n        top\
+          \ = series.value_counts().nlargest(k).index\n        return series.apply(lambda\
+          \ v: v if v in top else \"OTHER\")\n\n    def bucket_age(age):\n       \
+          \ try:\n            a = float(age)\n        except Exception:\n        \
+          \    return \"unknown\"\n        if a < 0:\n            return \"unknown\"\
+          \n        if a <= 17:\n            return \"0-17\"\n        if a <= 34:\n\
+          \            return \"18-34\"\n        if a <= 54:\n            return \"\
+          35-54\"\n        if a <= 74:\n            return \"55-74\"\n        return\
+          \ \"75+\"\n\n    # ------------------------------------------------------------------\n\
+          \    # BigQuery Init\n    # ------------------------------------------------------------------\n\
+          \n    client = bigquery.Client(project=project, location=region)\n\n   \
+          \ raw_table_id = f\"{project}.{dataset_id}.{raw_data_bq_table}\"\n    dest_table_id\
+          \ = f\"{project}.{dataset_id}.{feature_bq_table}\"\n\n    # ------------------------------------------------------------------\n\
+          \    # Read BigQuery\n    # ------------------------------------------------------------------\n\
+          \n    try:\n        if is_monitoring:\n            date_filter = \"WHERE\
+          \ DATE(ingestion_time) = CURRENT_DATE()\"\n        else:\n            date_filter\
+          \ = \"\"\n        if required_columns:\n            cols = \", \".join([f\"\
+          `{c}`\" for c in required_columns])\n            query = f\"SELECT {cols}\
+          \ FROM `{raw_table_id}` {date_filter}\"\n        else:\n            query\
+          \ = f\"SELECT * FROM `{raw_table_id}` {date_filter}\"\n\n        df = (\n\
+          \            client.query(query)\n            .result()\n            .to_dataframe(create_bqstorage_client=False)\n\
+          \        )\n\n        print(f\"Read {len(df)} rows from {raw_table_id}\"\
+          )\n\n    except gcp_exceptions.GoogleAPICallError as e:\n        raise RuntimeError(f\"\
+          BigQuery read failed: {e}\") from e\n\n    if df.empty:\n        raise RuntimeError(f\"\
+          Raw table {raw_table_id} is empty\")\n\n    # ------------------------------------------------------------------\n\
+          \    # Rename Columns\n    # ------------------------------------------------------------------\n\
+          \n    col_map = {\n        \"Name\": \"name\",\n        \"Age\": \"age\"\
+          ,\n        \"Gender\": \"gender\",\n        \"Blood Type\": \"blood_type\"\
+          ,\n        \"Medical Condition\": \"medical_condition\",\n        \"Date\
+          \ of Admission\": \"date_of_admission\",\n        \"Doctor\": \"doctor\"\
+          ,\n        \"Hospital\": \"hospital\",\n        \"Insurance Provider\":\
+          \ \"insurance_provider\",\n        \"Billing Amount\": \"billing_amount\"\
+          ,\n        \"Room Number\": \"room_number\",\n        \"Admission Type\"\
+          : \"admission_type\",\n        \"Discharge Date\": \"discharge_date\",\n\
+          \        \"Medication\": \"medication\",\n        \"Test Results\": \"test_results\"\
+          ,\n        \"ingestion_time\": \"feature_timestamp\",\n    }\n\n    df =\
+          \ df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})\n\
+          \n    # ------------------------------------------------------------------\n\
+          \    # Deduplication\n    # ------------------------------------------------------------------\n\
+          \    df = df.drop_duplicates(subset=[\"name\", \"age\"], keep=\"first\"\
+          )\n    print(f\"Deduplicated data has {len(df)} rows\")\n\n    # ------------------------------------------------------------------\n\
+          \    # Cleaning\n    # ------------------------------------------------------------------\n\
+          \n    for c in df.select_dtypes(include=\"object\").columns:\n        df[c]\
+          \ = df[c].str.strip()\n\n    df[\"age\"] = df[\"age\"].mask((df[\"age\"\
+          ] < 0) | (df[\"age\"] > 120))\n    df[\"age_bucket\"] = df[\"age\"].apply(bucket_age)\n\
+          \    df[\"age\"] = (df[\"age\"].astype(str).str.replace(\"\u2013\", \"-\"\
+          , regex=False)  # EN DASH \u2192 ASCII\n)\n    df[\"blood_type\"] = df[\"\
+          blood_type\"].apply(normalize_blood_type)\n\n    df[\"medical_condition\"\
+          ] = (\n        df[\"medical_condition\"]\n        .astype(str)\n       \
+          \ .apply(lambda s: normalize_whitespace(s).lower() if s != \"nan\" else\
+          \ \"unknown\")\n    )\n\n    df[\"hospital\"] = df[\"hospital\"].astype(str).apply(normalize_whitespace)\n\
+          \    df[\"hospital\"] = topk_map(df[\"hospital\"], top_k)\n\n    # ------------------------------------------------------------------\n\
+          \    # DATE FIX (Timestamp vs date bug)\n    # ------------------------------------------------------------------\n\
+          \n    df[\"date_of_admission\"] = pd.to_datetime(\n        df[\"date_of_admission\"\
+          ], errors=\"coerce\"\n    )\n\n    df[\"discharge_date\"] = pd.to_datetime(\n\
+          \        df[\"discharge_date\"], errors=\"coerce\"\n    )\n\n    df[\"admit_time_days\"\
+          ] = (\n        df[\"discharge_date\"] - df[\"date_of_admission\"]\n    ).dt.days\n\
+          \n    df[\"admit_time_days\"] = df[\"admit_time_days\"].mask(\n        (df[\"\
+          admit_time_days\"] < 0) | (df[\"admit_time_days\"] > 365)\n    )\n\n   \
+          \ median_los = df[\"admit_time_days\"].median(skipna=True)\n    df[\"admit_time_days\"\
+          ] = df[\"admit_time_days\"].fillna(median_los)\n\n    df[\"admit_time_bucket\"\
+          ] = pd.cut(\n        df[\"admit_time_days\"],\n        bins=[-1, 0, 2, 5,\
+          \ 10, 30, 365],\n        labels=[\"0\", \"1\u20132\", \"3\u20135\", \"6\u2013\
+          10\", \"11\u201330\", \"30+\"],\n    )\n    df[\"admit_time_bucket\"] =\
+          \ (\n        df[\"admit_time_bucket\"]\n        .astype(str)\n        .str.replace(\"\
+          \u2013\", \"-\", regex=False)  # EN DASH \u2192 ASCII\n    )\n\n    # ------------------------------------------------------------------\n\
+          \    # Create a unique record_id \n    # ------------------------------------------------------------------\n\
+          \    df[\"record_id\"] = (\n        df[\"name\"].astype(str).str.lower().str.replace(\"\
+          \ \", \"\") + \n        \"_\" + \n        df[\"age\"].astype(str)\n    )\n\
+          \    print(\"Number of records in df: \", len(df))\n    # ------------------------------------------------------------------\n\
+          \    # Drop PII / Select Features\n    # ------------------------------------------------------------------\n\
+          \n    allowlist = [\n        \"record_id\",        \n        \"age_bucket\"\
+          ,\n        \"gender\",\n        \"blood_type\",\n        \"medical_condition\"\
+          ,\n        \"admission_type\",\n        \"hospital\",\n        \"admit_time_bucket\"\
+          ,\n        \"test_results\",\n        \"feature_timestamp\"\n    ]\n\n \
+          \   features_df = df[[c for c in allowlist if c in df.columns]].copy()\n\
+          \n    # ------------------------------------------------------------------\n\
+          \    # FIX: Handle Categoricals SAFELY\n    # ------------------------------------------------------------------\n\
+          \n    for c in features_df.columns:\n        if pd.api.types.is_categorical_dtype(features_df[c]):\n\
+          \            if \"UNKNOWN\" not in features_df[c].cat.categories:\n    \
+          \            features_df[c] = features_df[c].cat.add_categories([\"UNKNOWN\"\
+          ])\n            features_df[c] = features_df[c].fillna(\"UNKNOWN\")\n  \
+          \      else:\n            features_df[c] = features_df[c].fillna(\"UNKNOWN\"\
+          ).astype(str)\n\n    # Optional hardening (safe for BigQuery ML)\n    features_df\
+          \ = features_df.astype(str)\n    print(f\"Prepared features dataframe has\
+          \ {features_df.shape[0]}\")\n    # ------------------------------------------------------------------\n\
+          \    # Write to BigQuery\n    # ------------------------------------------------------------------\n\
+          \n    try:\n        job_config = bigquery.LoadJobConfig(\n            write_disposition=(\n\
+          \                bigquery.WriteDisposition.WRITE_APPEND\n              \
+          \  if write_disposition == \"WRITE_APPEND\"\n                else bigquery.WriteDisposition.WRITE_TRUNCATE\n\
+          \            )\n        )\n\n        load_job = client.load_table_from_dataframe(\n\
+          \            features_df,\n            destination=dest_table_id,\n    \
+          \        job_config=job_config,\n        )\n\n        load_job.result()\n\
+          \n        print(\n            f\"Wrote {features_df.shape[0]} rows \"\n\
+          \            f\"and {features_df.shape[1]} columns to {dest_table_id}\"\n\
+          \        )\n\n    except gcp_exceptions.GoogleAPICallError as e:\n     \
+          \   raise RuntimeError(f\"BigQuery write failed: {e}\") from e\n\n"
+        image: python:3.10
+    exec-train-custom-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train_custom_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas==2.0.3'\
+          \ 'scikit-learn==1.3.2' 'google-cloud-bigquery' 'pyarrow' 'joblib==1.3.2'\
+          \ 'db-dtypes' 'google-cloud-pipeline-components'  &&  python3 -m pip install\
+          \ --quiet --no-warn-script-location 'kfp==2.14.6' '--no-deps' 'typing-extensions>=3.7.4,<5;\
+          \ python_version<\"3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\nfrom google_cloud_pipeline_components.types.artifact_types import UnmanagedContainerModel\n\
+          \ndef train_custom_model(\n    project: str,\n    dataset_id: str,\n   \
+          \ feature_table_id: str,\n    target_column: str,\n    # Change the output\
+          \ type here\n    model_output: Output[UnmanagedContainerModel]\n):\n   \
+          \ import pandas as pd\n    import joblib\n    import os\n    from google.cloud\
+          \ import bigquery\n    from sklearn.ensemble import RandomForestClassifier\n\
+          \    from sklearn.preprocessing import OneHotEncoder\n    from sklearn.compose\
+          \ import ColumnTransformer\n    from sklearn.pipeline import Pipeline\n\
+          \    from sklearn.model_selection import train_test_split\n\n    # 1. Load\
+          \ Data\n    client = bigquery.Client(project=project)\n    query = f\"SELECT\
+          \ * FROM `{project}.{dataset_id}.{feature_table_id}`\"\n    df = client.query(query).to_dataframe()\n\
+          \n    train_df, _ = train_test_split(df, test_size=0.2, random_state=42)\n\
+          \n    # 3. Separate Features and Target + Drop Non-Features\n    # CRITICAL:\
+          \ We must remove record_id and feature_timestamp before training!\n    drop_cols\
+          \ = [target_column, \"record_id\", \"feature_timestamp\"]\n    X = train_df.drop(columns=[c\
+          \ for c in drop_cols if c in train_df.columns])\n    y = train_df[target_column]\n\
+          \n    # 3. Preprocessing\n    categorical_features = X.select_dtypes(include=['object']).columns.tolist()\n\
+          \    if categorical_features:\n        preprocessor = ColumnTransformer(\n\
+          \            transformers=[\n                ('cat', OneHotEncoder(handle_unknown='ignore',\
+          \ max_categories=10, sparse_output=False), categorical_features)\n     \
+          \       ],\n            remainder='passthrough'\n        )\n    else:\n\
+          \        preprocessor = ColumnTransformer(transformers=[], remainder='passthrough')\n\
+          \n    # 4. Pipeline\n    pipeline = Pipeline(steps=[\n        ('preprocessor',\
+          \ preprocessor),\n        ('classifier', RandomForestClassifier(\n     \
+          \       n_estimators=30, \n            max_depth=10,\n            random_state=42\n\
+          \        ))\n    ])\n\n    # 5. Train\n    pipeline.fit(X, y)\n\n    # 6.\
+          \ Save Model Artifact\n    # Note: Vertex AI Sklearn containers expect the\
+          \ file to be named 'model.joblib'\n    os.makedirs(model_output.path, exist_ok=True)\n\
+          \    model_file = os.path.join(model_output.path, \"model.joblib\")\n  \
+          \  joblib.dump(pipeline, model_file)\n\n    # 7. Metadata injection for\
+          \ ModelUploadOp\n    # This is the crucial step that replaces the 'importer'\n\
+          \    model_output.metadata[\"containerSpec\"] = {\n        \"imageUri\"\
+          : \"us-docker.pkg.dev/vertex-ai/prediction/sklearn-cpu.1-3:latest\"\n  \
+          \  }\n\n"
+        image: python:3.9
+    exec-vertex-pipelines-notification-email:
+      container:
+        args:
+        - --type
+        - VertexNotificationEmail
+        - --payload
+        - ''
+        command:
+        - python3
+        - -u
+        - -m
+        - google_cloud_pipeline_components.container.v1.vertex_notification_email.executor
+        image: gcr.io/ml-pipeline/google-cloud-pipeline-components:2.22.0
+pipelineInfo:
+  name: mlops-ref-monitoring-pipeline
+root:
+  dag:
+    tasks:
+      exit-handler-1:
+        componentRef:
+          name: comp-exit-handler-1
+        inputs:
+          parameters:
+            pipelinechannel--dataset_id:
+              componentInputParameter: dataset_id
+            pipelinechannel--dataset_region:
+              componentInputParameter: dataset_region
+            pipelinechannel--feature_table_id:
+              componentInputParameter: feature_table_id
+            pipelinechannel--model_labels:
+              componentInputParameter: model_labels
+            pipelinechannel--model_name:
+              componentInputParameter: model_name
+            pipelinechannel--project:
+              componentInputParameter: project
+            pipelinechannel--region:
+              componentInputParameter: region
+            pipelinechannel--required_columns:
+              componentInputParameter: required_columns
+            pipelinechannel--source_gcs_dir:
+              componentInputParameter: source_gcs_dir
+            pipelinechannel--source_table_id:
+              componentInputParameter: source_table_id
+            pipelinechannel--target_column:
+              componentInputParameter: target_column
+            pipelinechannel--top_k_feat_prep:
+              componentInputParameter: top_k_feat_prep
+            pipelinechannel--validation_script_path:
+              componentInputParameter: validation_script_path
+            pipelinechannel--validation_sql_params:
+              componentInputParameter: validation_sql_params
+            pipelinechannel--version_aliases:
+              componentInputParameter: version_aliases
+            pipelinechannel--write_disposition_bq_load:
+              componentInputParameter: write_disposition_bq_load
+            pipelinechannel--write_disposition_feature_load:
+              componentInputParameter: write_disposition_feature_load
+        taskInfo:
+          name: exit-handler-1
+      vertex-pipelines-notification-email:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-vertex-pipelines-notification-email
+        dependentTasks:
+        - exit-handler-1
+        inputs:
+          parameters:
+            pipeline_task_final_status:
+              taskFinalStatus:
+                producerTask: exit-handler-1
+            recipients:
+              runtimeValue:
+                constant:
+                - sarthak.lohani@onixnet.com
+        taskInfo:
+          name: vertex-pipelines-notification-email
+        triggerPolicy:
+          strategy: ALL_UPSTREAM_TASKS_COMPLETED
+  inputDefinitions:
+    parameters:
+      auto_class_weights:
+        defaultValue: true
+        isOptional: true
+        parameterType: BOOLEAN
+      data_split_method:
+        defaultValue: AUTO_SPLIT
+        isOptional: true
+        parameterType: STRING
+      dataset_id:
+        parameterType: STRING
+      dataset_region:
+        parameterType: STRING
+      feature_table_id:
+        parameterType: STRING
+      l1_reg:
+        defaultValue: 0.0
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      l2_reg:
+        defaultValue: 0.0
+        isOptional: true
+        parameterType: NUMBER_DOUBLE
+      max_iterations:
+        defaultValue: 20.0
+        isOptional: true
+        parameterType: NUMBER_INTEGER
+      model_labels:
+        parameterType: STRUCT
+      model_name:
+        parameterType: STRING
+      model_type:
+        parameterType: STRING
+      project:
+        parameterType: STRING
+      region:
+        parameterType: STRING
+      required_columns:
+        parameterType: LIST
+      source_gcs_dir:
+        parameterType: STRING
+      source_table_id:
+        parameterType: STRING
+      target_column:
+        parameterType: STRING
+      top_k_feat_prep:
+        parameterType: NUMBER_INTEGER
+      validation_script_path:
+        parameterType: STRING
+      validation_sql_params:
+        parameterType: STRUCT
+      version_aliases:
+        parameterType: LIST
+      write_disposition_bq_load:
+        parameterType: STRING
+      write_disposition_feature_load:
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.14.6

@@ -17,6 +17,7 @@ def prepare_features(
     feature_bq_table: str,
     required_columns: list,
     dataset_id: str,
+    is_monitoring: bool,
     top_k: int = 5,
     write_disposition: str = "WRITE_TRUNCATE",
 ):
@@ -68,18 +69,6 @@ def prepare_features(
             return "55-74"
         return "75+"
 
-    def normalize_test(v):
-        if pd.isna(v):
-            return "Unknown"
-        x = str(v).lower().strip()
-        if x.startswith("norm"):
-            return "Normal"
-        if x.startswith("abn"):
-            return "Abnormal"
-        if x.startswith("inc"):
-            return "Inconclusive"
-        return "Other"
-
     # ------------------------------------------------------------------
     # BigQuery Init
     # ------------------------------------------------------------------
@@ -94,11 +83,15 @@ def prepare_features(
     # ------------------------------------------------------------------
 
     try:
+        if is_monitoring:
+            date_filter = "WHERE DATE(ingestion_time) = CURRENT_DATE()"
+        else:
+            date_filter = ""
         if required_columns:
             cols = ", ".join([f"`{c}`" for c in required_columns])
-            query = f"SELECT {cols} FROM `{raw_table_id}`"
+            query = f"SELECT {cols} FROM `{raw_table_id}` {date_filter}"
         else:
-            query = f"SELECT * FROM `{raw_table_id}`"
+            query = f"SELECT * FROM `{raw_table_id}` {date_filter}"
 
         df = (
             client.query(query)
@@ -134,10 +127,17 @@ def prepare_features(
         "Discharge Date": "discharge_date",
         "Medication": "medication",
         "Test Results": "test_results",
+        "ingestion_time": "feature_timestamp",
     }
 
     df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
 
+    # ------------------------------------------------------------------
+    # Deduplication
+    # ------------------------------------------------------------------
+    df = df.drop_duplicates(subset=["name", "age"], keep="first")
+    print(f"Deduplicated data has {len(df)} rows")
+    
     # ------------------------------------------------------------------
     # Cleaning
     # ------------------------------------------------------------------
@@ -147,7 +147,8 @@ def prepare_features(
 
     df["age"] = df["age"].mask((df["age"] < 0) | (df["age"] > 120))
     df["age_bucket"] = df["age"].apply(bucket_age)
-
+    df["age"] = (df["age"].astype(str).str.replace("–", "-", regex=False)  # EN DASH → ASCII
+)
     df["blood_type"] = df["blood_type"].apply(normalize_blood_type)
 
     df["medical_condition"] = (
@@ -187,18 +188,27 @@ def prepare_features(
         bins=[-1, 0, 2, 5, 10, 30, 365],
         labels=["0", "1–2", "3–5", "6–10", "11–30", "30+"],
     )
+    df["admit_time_bucket"] = (
+        df["admit_time_bucket"]
+        .astype(str)
+        .str.replace("–", "-", regex=False)  # EN DASH → ASCII
+    )
 
     # ------------------------------------------------------------------
-    # Test Results
+    # Create a unique record_id 
     # ------------------------------------------------------------------
-
-    df["test_results"] = df.get("test_results", "Unknown").apply(normalize_test)
-
+    df["record_id"] = (
+        df["name"].astype(str).str.lower().str.replace(" ", "") + 
+        "_" + 
+        df["age"].astype(str)
+    )
+    print("Number of records in df: ", len(df))
     # ------------------------------------------------------------------
     # Drop PII / Select Features
     # ------------------------------------------------------------------
 
     allowlist = [
+        "record_id",        
         "age_bucket",
         "gender",
         "blood_type",
@@ -207,12 +217,13 @@ def prepare_features(
         "hospital",
         "admit_time_bucket",
         "test_results",
+        "feature_timestamp"
     ]
 
     features_df = df[[c for c in allowlist if c in df.columns]].copy()
 
     # ------------------------------------------------------------------
-    # 🔥 FIX: Handle Categoricals SAFELY
+    # FIX: Handle Categoricals SAFELY
     # ------------------------------------------------------------------
 
     for c in features_df.columns:
@@ -225,7 +236,7 @@ def prepare_features(
 
     # Optional hardening (safe for BigQuery ML)
     features_df = features_df.astype(str)
-
+    print(f"Prepared features dataframe has {features_df.shape[0]}")
     # ------------------------------------------------------------------
     # Write to BigQuery
     # ------------------------------------------------------------------

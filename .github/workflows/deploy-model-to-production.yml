@@ -1,0 +1,96 @@
+# .github/workflows/promote-to-prod.yml
+name: Deploy Model to Production
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target env (dev/prod)"
+        required: true
+        default: 'dev'
+
+# # Required for Workload Identity Federation (WIF)
+# permissions:
+#   contents: 'read'
+#   id-token: 'write'
+
+jobs:
+  deploy:
+    environment: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
+    env:
+      GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      VERTEX_SA_EMAIL: ${{ vars.VERTEX_SA_EMAIL }}
+      PIPELINE_GCS_BUCKET: ${{ vars.PIPELINE_GCS_BUCKET }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - id: auth
+        name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT }}
+          credentials_json: ${{ secrets.SA_CREDS }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v1
+
+      - name: Set gcloud project
+        run: gcloud config set project ${{ env.GCP_PROJECT }}
+
+      - name: Set region
+        run: gcloud config set ai/region ${{ env.GCP_REGION }}
+
+      # ---- Get Approved Model Version ----
+      - name: Get Approved Model Version
+        id: get_model
+        run: |
+          MODEL_VERSION=$(gcloud ai models list \
+            --format="value(name)" \
+            --filter="labels.state=approved displayName=healthcare-test-results-classifier" \
+            --sort-by=~createTime \
+            --limit=1 \
+            --region=${{ env.GCP_REGION }})
+
+          if [[ -z "$MODEL_VERSION" ]]; then
+            echo "No approved model found"
+            exit 1
+          fi
+
+          echo "Approved model: $MODEL_VERSION"
+          echo "model_version=$MODEL_VERSION" >> $GITHUB_OUTPUT
+
+      # ---- Create endpoint if not exists ----
+      - name: Create Endpoint if needed
+        id: endpoint
+        run: |
+          ENDPOINT_ID=$(gcloud ai endpoints list \
+            --filter="displayName=healthcare-test-results-classifier-endpoint" \
+            --format="value(name)" \
+            --limit=1)
+
+          if [[ -z "$ENDPOINT_ID" ]]; then
+            echo "🛠 Creating endpoint: healthcare-test-results-classifier-endpoint"
+            ENDPOINT_ID=$(gcloud ai endpoints create \
+              --display-name=healthcare-test-results-classifier-endpoint \
+              --format="value(name)")
+          fi
+
+          echo "Endpoint: $ENDPOINT_ID"
+          echo "endpoint_id=$ENDPOINT_ID" >> $GITHUB_OUTPUT
+
+      # ---- Deploy to Online Endpoint ----
+      - name: Deploy model to endpoint
+        run: |
+          gcloud ai endpoints deploy-model \
+            ${{ steps.endpoint.outputs.endpoint_id }} \
+            --model=${{ steps.get_model.outputs.model_version }} \
+            --display-name="healthcare-test-results-classifier-model-online" \
+            --machine-type=$ONLINE_MACHINE_TYPE \
+            --traffic-split=0=100 \
+            --quiet
+
+          echo "Online model deployed"
+
+      
