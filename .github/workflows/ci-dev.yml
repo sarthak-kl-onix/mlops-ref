@@ -5,7 +5,7 @@ name: CI - Run Lint & Tests
 on:
   pull_request:
     branches:
-      - feature/Aditya
+      - develop
 
 jobs:
   test-and-lint:
