@@ -29,12 +29,12 @@
     "max_null_admission": 0.2,
     "max_null_medcond": 0.4,
 
-    "model_name": "healthcare_test_results_classifier2",
-    "model_type": "SKLEARN_RANDOM_FOREST",
-    "target_column": "test_results", 
+    "model_name": "healthcare_test_results_classifier1",
+    "model_type": "LOGISTIC_REG",
+    "target_column": "test_results",
     "data_split_method": "AUTO_SPLIT",
-    "auto_class_weights": true,
-    "max_iterations": 100,
+    "auto_class_weights": "TRUE",
+    "max_iterations": 20,
     "l1_reg": 0.0,
     "l2_reg": 0.0
 }

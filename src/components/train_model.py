@@ -19,7 +19,6 @@ def train_custom_model(
     dataset_id: str,
     feature_table_id: str,
     target_column: str,
-    # Change the output type here
     model_output: Output[UnmanagedContainerModel]
 ):
     import pandas as pd

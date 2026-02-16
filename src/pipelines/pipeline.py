@@ -1,3 +1,4 @@
+
 import json
 import os
 from kfp.dsl import importer
@@ -56,7 +57,6 @@ def pipeline_func(
     model_type: str,
     target_column: str,
     data_split_method: str = "AUTO_SPLIT",
-    data_split_eval_fraction: float = 0.2,
     auto_class_weights: bool = True,
     max_iterations: int = 20,
     l1_reg: float = 0.0,
@@ -122,63 +122,64 @@ def pipeline_func(
             # "l1_reg": 0.0,
             # "l2_reg": 0.0
 
-        #     train_model_op = BigqueryCreateModelJobOp(
-        #     project=project,
-        #     location=source_dataset_region,
-        #     query=f"""
-        #         CREATE OR REPLACE MODEL `{project}.{dataset_id}.{model_name}`
-        #         OPTIONS(
-        #             model_type = '{model_type}',
-        #             input_label_cols = ['{target_column}'],
-        #             data_split_method = '{data_split_method}',
-        #             auto_class_weights = {auto_class_weights},
-        #             max_iterations = {max_iterations},
-        #             l1_reg = {l1_reg},
-        #             l2_reg = {l2_reg}
-        #         ) AS
-        #         SELECT *
-        #         FROM `{project}.{dataset_id}.{feature_table_id}`
-        #     """
-        # )
+            train_model_op = BigqueryCreateModelJobOp(
+            project=project,
+            location=source_dataset_region,
+            query=f"""
+                CREATE OR REPLACE MODEL `{project}.{dataset_id}.{model_name}`
+                OPTIONS(
+                    MODEL_REGISTRY = 'vertex_ai',
+                    VERTEX_AI_MODEL_ID = '{model_name}',
+                    model_type = '{model_type}',
+                    input_label_cols = ['{target_column}'],
+                    data_split_method = '{data_split_method}',
+                    auto_class_weights = {auto_class_weights},
+                    max_iterations = {max_iterations},
+                    l1_reg = {l1_reg},
+                    l2_reg = {l2_reg}
+                ) AS
+                SELECT *
+                FROM `{project}.{dataset_id}.{feature_table_id}`
+            """
+        )
 
-        #     train_model_op.after(prepare_features_op)
-        #     print(BigqueryExportModelJobOp.component_spec.outputs)
+            train_model_op.after(prepare_features_op) #returns model type as BQML model 
 
         # #     # Evaluate BQML model
-        #     evaluate_model_op = BigqueryEvaluateModelJobOp(
-        #         project=project,
-        #         location=source_dataset_region,
-        #         model=train_model_op.outputs["model"]
-        #     )
-        #     evaluate_model_op.after(train_model_op)
+            evaluate_model_op = BigqueryEvaluateModelJobOp(
+                project=project,
+                location=source_dataset_region,
+                model=train_model_op.outputs["model"]
+            )
+            evaluate_model_op.after(train_model_op)
 
-        #     # Export and Upload BQML model to Vertex AI Model Registry
+            get_model_op = ModelGetOp(
+                model_name=model_name
+                # f"projects/{project}/locations/{source_dataset_region}/models/{}"
+            )
+            get_model_op.after(train_model_op)#converts BQML model to Vertex AI Model. 
 
-        #     export_model_op = BigqueryExportModelJobOp(
-        #         project=project,
-        #         location=source_dataset_region,
-        #         model=train_model_op.outputs["model"],
-        #         model_destination_path=BUCKET_URI + "/models",
-        #     )
-        #     export_model_op.after(evaluate_model_op)
+            #  Create the Endpoint
+            create_endpoint_op = EndpointCreateOp(
+                project=project,
+                location=source_dataset_region,
+                display_name=f"{model_name}-endpoint"
+            )
 
-        #     unmanaged_model = importer(
-        #         artifact_uri=export_model_op.outputs["exported_model_path"],
-        #         artifact_class=UnmanagedContainerModel,
-        #         metadata={
-        #             "containerSpec": {
-        #                 "imageUri": "us-docker.pkg.dev/vertex-ai/prediction/sklearn-cpu.1-3:latest"
-        #             }
-        #         }
-        #     )
-        # #     # Upload model to Vertex AI Model Registry
-        #     upload_model_op = ModelUploadOp(
-        #         project=project,
-        #         location=region,
-        #         display_name=f"{model_name}-uploaded",
-        #         unmanaged_container_model=unmanaged_model.output,
-        #     )
-        #     upload_model_op.after(export_model_op)#won't work  
+            #  Deploy the Model to the Endpoint
+            deploy_model_op = ModelDeployOp(
+                model=get_model_op.outputs["model"],
+                endpoint=create_endpoint_op.outputs["endpoint"],
+                dedicated_resources_machine_type="n1-standard-4",
+                dedicated_resources_min_replica_count=1,
+                dedicated_resources_max_replica_count=1,
+                traffic_split={"0": 100}, # Send 100% of traffic to this new deployment
+                explanation_metadata={},
+                explanation_parameters={}
+            )
+
+            deploy_model_op.after(evaluate_model_op)#model deploy requuires model type to be vertex ai model. 
+
 
 
 
@@ -195,23 +196,23 @@ def pipeline_func(
             # "l2_reg": 0.0
 
             #Custom Training
-            train_op = train_custom_model(
-                    project=project,
-                    dataset_id=dataset_id,
-                    feature_table_id=feature_table_id,
-                    target_column=target_column
-                )
-            train_op.after(prepare_features_op)
+            # train_op = train_custom_model(
+            #         project=project,
+            #         dataset_id=dataset_id,
+            #         feature_table_id=feature_table_id,
+            #         target_column=target_column
+            #     )
+            # train_op.after(prepare_features_op)
 
             # Custom Evaluation
-            evaluate_op = evaluate_model(
-                    project=project,
-                    dataset_id=dataset_id,
-                    feature_table_id=feature_table_id,
-                    target_column=target_column,
-                    model_input=train_op.outputs['model_output']
-                )
-            evaluate_op.after(train_op)
+            # evaluate_op = evaluate_model(
+            #         project=project,
+            #         dataset_id=dataset_id,
+            #         feature_table_id=feature_table_id,
+            #         target_column=target_column,
+            #         model_input=train_op.outputs['model_output']
+            #     )
+            # evaluate_op.after(train_op)
 
 
 
@@ -230,29 +231,29 @@ def pipeline_func(
             #         }
             #     }
             # )
-            upload_op = ModelUploadOp(
-                project=project,
-                location=region,
-                display_name=model_name,
-                unmanaged_container_model=train_op.outputs['model_output']
-            )
-            upload_op.after(evaluate_op)
+            # upload_op = ModelUploadOp(
+            #     project=project,
+            #     location=region,
+            #     display_name=model_name,
+            #     unmanaged_container_model=train_op.outputs['model_output']
+            # )
+            # upload_op.after(evaluate_op)
     
             # Deploy the Model 
-            endpoint_create_op = EndpointCreateOp(
-            project=project,
-            location=region,
-            display_name=f"{model_name}-endpoint",
-            )
-            model_deploy_op = ModelDeployOp(
-            model=upload_op.outputs["model"],
-            endpoint=endpoint_create_op.outputs["endpoint"],
-            dedicated_resources_machine_type="n1-standard-8",
-            dedicated_resources_min_replica_count=1,
-            dedicated_resources_max_replica_count=1,
-            traffic_split={"0": 100}, # 100% traffic to this new model
-            )
-        model_deploy_op.after(upload_op)
+        #     endpoint_create_op = EndpointCreateOp(
+        #     project=project,
+        #     location=region,
+        #     display_name=f"{model_name}-endpoint",
+        #     )
+        #     model_deploy_op = ModelDeployOp(
+        #     model=upload_op.outputs["model"],
+        #     endpoint=endpoint_create_op.outputs["endpoint"],
+        #     dedicated_resources_machine_type="n1-standard-8",
+        #     dedicated_resources_min_replica_count=1,
+        #     dedicated_resources_max_replica_count=1,
+        #     traffic_split={"0": 100}, # 100% traffic to this new model
+        #     )
+        # model_deploy_op.after(upload_op)
 
             
 
