@@ -65,7 +65,7 @@ jobs:
         run: |
           MODEL_VERSION=$(gcloud ai models list \
             --format="value(name)" \
-            --filter="labels.model_status=approved displayName=mlops_staples_pilot_model" \
+            --filter="labels.model_status=approved displayName=healthcare-test-results-classifier" \
             --sort-by=~createTime \
             --limit=1 \
             --region=${{ vars.GCP_REGION }} \
