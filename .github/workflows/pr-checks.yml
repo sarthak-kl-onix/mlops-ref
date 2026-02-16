@@ -1,0 +1,119 @@
+name: Approve Merge to Main
+
+on:
+  pull_request:
+    branches:
+      - main       # Trigger only for PRs targeting main
+    types: [opened, edited, reopened, synchronize]
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  validate_model_id:
+    environment: dev
+    runs-on: ubuntu-latest
+    env:
+      GCP_REGION: ${{ vars.GCP_REGION }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - id: 'auth'
+        name: Authenticate to Google Cloud
+        uses: 'google-github-actions/auth@v3'
+        with:
+          project_id: ${{ vars.GCP_PROJECT }}
+          credentials_json: ${{ secrets.SA_CREDS }}
+
+      - name: Extract PR title
+        id: extract
+        run: |
+          echo "TITLE<<EOF" >> $GITHUB_OUTPUT
+          echo "${{ github.event.pull_request.title }}" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Validate model_id in PR title
+        id: validate
+        run: |
+          TITLE="${{ steps.extract.outputs.TITLE }}"
+
+          echo "Checking PR title for model_id..."
+          echo "PR Title: $TITLE"
+
+          # Regex supports:
+          # model_id: VALUE
+          # model_id=VALUE
+          # model_id VALUE
+          MODEL_ID=$(echo "$TITLE" \
+            | grep -Eo 'model_id[:= ]+[A-Za-z0-9_.-]+' \
+            | sed -E 's/model_id[:= ]+//' || true)
+
+          if [ -z "$MODEL_ID" ]; then
+            echo "Error: model_id not found in PR title."
+            exit 1
+          else
+            echo "Found model_id: $MODEL_ID"
+            echo "model_id=$MODEL_ID" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Check if model is approved
+        id: verify_model
+        run: |
+          MODEL_VERSION=$(gcloud ai models list \
+            --format="value(name)" \
+            --filter="labels.model_status=approved displayName=healthcare-test-results-classifier" \
+            --sort-by=~createTime \
+            --limit=1 \
+            --region=${{ vars.GCP_REGION }} \
+            --project=${{ vars.GCP_PROJECT }})
+
+          if [[ -z "$MODEL_VERSION" ]]; then
+            echo "No approved model found"
+            exit 1
+          fi
+
+          echo "Approved model: $MODEL_VERSION"
+          if [[ "$MODEL_VERSION" != "${{ steps.validate.outputs.model_id }}" ]]; then
+            echo "Error: model_id in PR title does not match approved model."
+            exit 1
+          fi
+          echo "model_version=$MODEL_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Assign reviewer
+        if: ${{ success() }}    # Only assign reviewer if model_id found
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const reviewer = "sarthak-kl-onix";  // <-- Change to actual reviewer
+
+            await github.rest.pulls.requestReviewers({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              reviewers: [reviewer],
+            });
+
+            core.notice(`Assigned reviewer: ${reviewer}`);
+
+      # - name: Check if PR has at least one approval
+      #   id: check_approval
+      #   uses: actions/github-script@v7
+      #   with:
+      #     script: |
+      #       const reviews = await github.rest.pulls.listReviews({
+      #         owner: context.repo.owner,
+      #         repo: context.repo.repo,
+      #         pull_number: context.issue.number,
+      #       });
+
+      #       const approved = reviews.data.some(r => r.state === "APPROVED");
+
+      #       if (!approved) {
+      #         core.setFailed("PR cannot be merged until at least one reviewer APPROVES it.");
+      #       } else {
+      #         core.notice("Reviewer has approved this PR.");
+      #       }

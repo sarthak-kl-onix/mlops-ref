@@ -29,15 +29,20 @@ def train_custom_model(
     from sklearn.preprocessing import OneHotEncoder
     from sklearn.compose import ColumnTransformer
     from sklearn.pipeline import Pipeline
+    from sklearn.model_selection import train_test_split
 
     # 1. Load Data
     client = bigquery.Client(project=project)
     query = f"SELECT * FROM `{project}.{dataset_id}.{feature_table_id}`"
     df = client.query(query).to_dataframe()
 
-    # 2. Split Features and Target
-    X = df.drop(columns=[target_column])
-    y = df[target_column]
+    train_df, _ = train_test_split(df, test_size=0.2, random_state=42)
+
+    # 3. Separate Features and Target + Drop Non-Features
+    # CRITICAL: We must remove record_id and feature_timestamp before training!
+    drop_cols = [target_column, "record_id", "feature_timestamp"]
+    X = train_df.drop(columns=[c for c in drop_cols if c in train_df.columns])
+    y = train_df[target_column]
 
     # 3. Preprocessing
     categorical_features = X.select_dtypes(include=['object']).columns.tolist()

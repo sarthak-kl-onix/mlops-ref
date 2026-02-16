@@ -1,0 +1,85 @@
+name: Deploy and Run Vertex AI Pipeline
+
+# Triggers on push to 'dev' branch
+on:
+  push:
+    branches:
+      - feature/Aditya
+      - main
+
+jobs:
+  deploy-pipeline:
+    environment: ${{ github.ref == 'refs/heads/main' && 'prod' || github.ref == 'refs/heads/feature/Aditya' && 'dev' }}
+    # Job runs only on develop or main
+    if: github.ref == 'refs/heads/feature/Aditya' || github.ref == 'refs/heads/main'
+    env:
+      PIPELINE_NAME: mlops-reference-pipeline
+      PROJECT_ID: ${{ vars.GCP_PROJECT }}
+      REGION: ${{ vars.GCP_REGION }}
+      PIPELINE_GCS_BUCKET: ${{ vars.PIPELINE_GCS_BUCKET }}
+      VERTEX_SA_EMAIL: ${{ secrets.VERTEX_SA_EMAIL }}
+      ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || github.ref == 'refs/heads/feature/Aditya' && 'dev' }}
+      PIPELINE_REPO: ml-pipelines
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        
+      - id: 'auth'
+        name: Authenticate to Google Cloud
+        uses: 'google-github-actions/auth@v3'
+        with:
+          project_id: ${{ vars.GCP_PROJECT }}
+          credentials_json: ${{ secrets.SA_CREDS }}
+
+      - name: "Set up Python"
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: "pyproject.toml"
+      # --- Setup Python and uv ---
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Compile Pipeline
+        run: | 
+          uv run src/pipelines/training/pipeline.py
+
+      - name: Upload Pipeline Spec to GCS
+        # This step uploads the *exact* file version from this commit (Step 5.2)
+        uses: google-github-actions/upload-cloud-storage@v2
+        with:
+          path: src/pipelines/training/mlops-ref-pipeline.yaml # Your provided filename
+          # We tag the pipeline spec with the commit SHA for promotion
+          destination: ${{ env.PIPELINE_GCS_BUCKET }}/${{ env.PIPELINE_NAME }}/specs/${{ github.sha }}
+          parent: false
+
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v3'
+        with:
+          version: '>= 363.0.0'
+
+      - name: Upload Pipeline Spec to Artifact Registry
+        run: |
+          curl -X POST \
+          -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+          -F tags=latest,${{ github.sha }} \
+          -F content=@src/pipelines/training/mlops-ref-pipeline.yaml \
+          https://us-central1-kfp.pkg.dev/${{ env.PROJECT_ID }}/${{ env.PIPELINE_REPO }}
+      
+      - name: Upload SQL scripts to GCS
+        run: |
+          uv run deployment/upload_sqls_to_gcs.py
+
+      - name: Run Vertex AI PipelineJob
+        id: run_pipeline
+        if: github.ref == 'refs/heads/feature/Aditya'
+        run: |
+          uv run deployment/run_pipeline.py
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          PACKAGE_PATH: gs://${{ env.PIPELINE_GCS_BUCKET }}/${{ env.PIPELINE_NAME }}/specs/${{ github.sha }}/mlops-ref-pipeline.yaml
+          

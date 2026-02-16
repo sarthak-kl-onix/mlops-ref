@@ -11,6 +11,7 @@
 
 DECLARE validated_table STRING DEFAULT '{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}';
 DECLARE results_table   STRING DEFAULT '{PROJECT_ID}.{DATASET_ID}.validation_results';
+DECLARE target_date STRING DEFAULT '{TARGET_DATE}';
 
 -- Required columns (array literal injected by pipeline)
 DECLARE required_columns ARRAY<STRING> DEFAULT [{REQUIRED_COLUMNS}];
@@ -21,6 +22,17 @@ DECLARE max_null_admission FLOAT64 DEFAULT {MAX_NULL_ADMISSION};
 DECLARE max_null_medcond FLOAT64 DEFAULT {MAX_NULL_MEDCOND};
 
 DECLARE failed BOOL DEFAULT FALSE;
+
+-- ============================
+-- Step 0: Create a filtered view of the data
+-- ============================
+CREATE TEMP TABLE data_to_validate AS
+SELECT * FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}`
+WHERE 
+  CASE 
+    WHEN target_date = 'ALL' THEN TRUE
+    ELSE DATE(ingestion_time) = DATE(target_date)
+  END;
 -- ============================
 -- Schema validation
 -- ============================
@@ -43,14 +55,14 @@ SELECT
   COUNTIF(`Blood Type` IS NULL) AS null_blood_type,
   COUNTIF(`Date of Admission` IS NULL) AS null_admission,
   COUNTIF(`Medical Condition` IS NULL) AS null_medcond
-FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}`;
+FROM data_to_validate;
 
 -- ============================
 -- Date consistency
 -- ============================
 CREATE TEMP TABLE bad_dates AS
 SELECT COUNT(*) AS bad_date_count
-FROM `{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}`
+FROM data_to_validate
 WHERE SAFE_CAST(`Discharge Date` AS DATE)
     < SAFE_CAST(`Date of Admission` AS DATE);
 
@@ -88,6 +100,7 @@ END IF;
 CREATE TABLE IF NOT EXISTS `{PROJECT_ID}.{DATASET_ID}.validation_results` (
   run_ts TIMESTAMP,
   validated_table STRING,
+  validation_scope STRING,
   total_rows INT64,
   missing_columns ARRAY<STRING>,
   null_summary STRING,
@@ -99,6 +112,7 @@ INSERT INTO `{PROJECT_ID}.{DATASET_ID}.validation_results`
 SELECT
   CURRENT_TIMESTAMP() AS run_ts,
   validated_table AS validated_table,
+  target_date AS validation_scope,
   (SELECT total_rows FROM stats) AS total_rows,
   (SELECT missing FROM missing_columns) AS missing_columns,
   TO_JSON_STRING(STRUCT(
