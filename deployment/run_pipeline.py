@@ -67,7 +67,7 @@ job = aiplatform.PipelineJob(
     pipeline_root=PIPELINE_ROOT,
     parameter_values=parameters,
     job_id=job_id,
-    # enable_caching=False,
+    enable_caching=False,
     project=config.get("project_id"),
     location=config.get("region")
 )

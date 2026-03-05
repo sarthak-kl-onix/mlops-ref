@@ -4,21 +4,21 @@ name: Deploy and Run Vertex AI Pipeline
 on:
   push:
     branches:
-      - feature/Aditya
+      - develop
       - main
 
 jobs:
   deploy-pipeline:
-    environment: ${{ github.ref == 'refs/heads/main' && 'prod' || github.ref == 'refs/heads/feature/Aditya' && 'dev' }}
+    environment: ${{ github.ref == 'refs/heads/main' && 'prod' || github.ref == 'refs/heads/develop' && 'dev' }}
     # Job runs only on develop or main
-    if: github.ref == 'refs/heads/feature/Aditya' || github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
     env:
       PIPELINE_NAME: mlops-reference-pipeline
       PROJECT_ID: ${{ vars.GCP_PROJECT }}
       REGION: ${{ vars.GCP_REGION }}
       PIPELINE_GCS_BUCKET: ${{ vars.PIPELINE_GCS_BUCKET }}
       VERTEX_SA_EMAIL: ${{ secrets.VERTEX_SA_EMAIL }}
-      ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || github.ref == 'refs/heads/feature/Aditya' && 'dev' }}
+      ENV: ${{ github.ref == 'refs/heads/main' && 'prod' || github.ref == 'refs/heads/develop' && 'dev' }}
       PIPELINE_REPO: ml-pipelines
     runs-on: ubuntu-latest
     
@@ -76,7 +76,7 @@ jobs:
 
       - name: Run Vertex AI PipelineJob
         id: run_pipeline
-        if: github.ref == 'refs/heads/feature/Aditya'
+        if: github.ref == 'refs/heads/develop'
         run: |
           uv run deployment/run_pipeline.py
         env:

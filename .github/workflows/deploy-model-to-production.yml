@@ -48,7 +48,7 @@ jobs:
         run: |
           MODEL_VERSION=$(gcloud ai models list \
             --format="value(name)" \
-            --filter="labels.state=approved displayName=healthcare-test-results-classifier" \
+            --filter="labels.model_status=approved displayName=healthcare-test-results-classifier" \
             --sort-by=~createTime \
             --limit=1 \
             --region=${{ env.GCP_REGION }})
